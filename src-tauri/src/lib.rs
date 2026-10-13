@@ -2,6 +2,7 @@ pub mod agent;
 pub mod assembly;
 mod frontmatter;
 pub mod git;
+pub mod issues;
 pub mod ledger;
 pub mod lore;
 pub mod pipeline;
@@ -10,7 +11,7 @@ pub mod review;
 pub mod settings;
 pub mod works;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tauri::ipc::Channel;
@@ -23,7 +24,7 @@ use agent::spec::{chat_spec, ledger_spec, reviewer_spec, writer_spec, AgentSpec}
 use agent::tools::ToolCtx;
 use lore::{SettingMeta, Visibility};
 use pipeline::{PipelineView, Stage};
-use review::{Proposal, SharedQueue};
+use review::{Proposal, ReviewQueue, SharedQueue};
 use settings::{ProviderProfile, SettingsView};
 use works::{TreeNode, WorkSummary};
 
@@ -467,35 +468,35 @@ fn preflight_chapter(
     Ok(preflight::preflight_cultivation(&text, &ledger))
 }
 
-/// 审校：一致性检查 / 去 AI 味。mode: "consistency" | "deai"
-#[tauri::command]
-async fn review_chapter(
-    app: AppHandle,
-    queue: State<'_, SharedQueue>,
-    work_path: String,
+/// 审校核心（命令与卷级批审共用）。mode: "consistency" | "deai"
+async fn run_review_core(
+    app: &AppHandle,
+    queue_arc: &Arc<std::sync::Mutex<ReviewQueue>>,
+    work_dir: &Path,
     volume: u32,
-    chapter: String,
-    mode: String,
-    on_event: Channel<AgentEvent>,
+    chapter: &str,
+    mode: &str,
+    on_event: &Channel<AgentEvent>,
 ) -> Result<(), String> {
-    let work_dir = PathBuf::from(&work_path);
+    let app = app.clone();
+    let on_event = on_event.clone();
     let settings = kernel::current_settings()?;
 
-    let ch_path = assembly::chapter_path(volume, &chapter);
+    let ch_path = assembly::chapter_path(volume, chapter);
     if !work_dir.join(&ch_path).exists() {
         return Err(format!("本章正文不存在：{ch_path}"));
     }
 
     let mut opts = assembly::AssemblyOptions::default();
     opts.volume = volume;
-    opts.chapter = chapter.clone();
+    opts.chapter = chapter.to_string();
     opts.stage = pipeline::Stage::Review;
-    let assembled = assembly::assemble(&work_dir, &opts)?;
+    let assembled = assembly::assemble(work_dir, &opts)?;
 
     // 代码级预检（零 token）：修为层级等连续量与账本比对，结果注入审校
     let preflight_report = if mode != "deai" {
-        let text = works::read_file(&work_dir, &ch_path)?;
-        let ledger = ledger::read_ledger(&work_dir)?;
+        let text = works::read_file(work_dir, &ch_path)?;
+        let ledger = ledger::read_ledger(work_dir)?;
         preflight::preflight_cultivation(&text, &ledger)
     } else {
         Vec::new()
@@ -534,8 +535,8 @@ async fn review_chapter(
     spec.sections.push(("task".to_string(), task));
 
     let tool_ctx = ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(&queue.0),
+        work_root: work_dir.to_path_buf(),
+        queue: Arc::clone(queue_arc),
         on_proposal: Arc::new(move |p: &review::Proposal| {
             let _ = app.emit("review:new", p);
         }),
@@ -546,7 +547,7 @@ async fn review_chapter(
         assembly::render_prompt(&assembled)
     );
 
-    let (_text, messages) = kernel::run(
+    let (report_text, messages) = kernel::run(
         &settings,
         Some(&tool_ctx),
         &spec,
@@ -563,8 +564,199 @@ async fn review_chapter(
         created_at: works::now_iso(),
         messages,
     };
-    let _ = session::save_session(&work_dir, &sess);
+    let _ = session::save_session(work_dir, &sess);
+
+    // 一致性模式的报告结构化落盘：全文存档 + 按编号拆条入问题清单
+    if mode == "consistency" && !report_text.trim().is_empty() {
+        let report_dir = work_dir.join("review");
+        let _ = std::fs::create_dir_all(&report_dir);
+        let _ = std::fs::write(report_dir.join(format!("报告-{chapter}.md")), &report_text);
+        let _ = issues::ingest_report(work_dir, chapter, "consistency", &report_text);
+        for p in &preflight_report {
+            let _ = issues::ingest_report(work_dir, chapter, "preflight", p);
+        }
+    }
     Ok(())
+}
+
+/// 审校：一致性检查 / 去 AI 味。mode: "consistency" | "deai"
+#[tauri::command]
+async fn review_chapter(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    mode: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    run_review_core(
+        &app,
+        &queue.0,
+        &PathBuf::from(work_path),
+        volume,
+        &chapter,
+        &mode,
+        &on_event,
+    )
+    .await
+}
+/// 复检：对照上轮问题清单与裁决记录逐项验证。
+#[tauri::command]
+async fn recheck_chapter(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let settings = kernel::current_settings()?;
+    let ch_path = assembly::chapter_path(volume, &chapter);
+    if !work_dir.join(&ch_path).exists() {
+        return Err(format!("本章正文不存在：{ch_path}"));
+    }
+
+    // 上轮清单 + 裁决记录
+    let all = issues::list(&work_dir, Some(&chapter))?;
+    if all.is_empty() {
+        return Err(format!("{chapter} 没有审校记录，请先执行一致性检查"));
+    }
+    let dossier = all
+        .iter()
+        .map(|i| {
+            format!(
+                "- [#{}][{}] {}\n  裁决：{}",
+                i.id,
+                i.status,
+                i.text.replace('\n', " "),
+                i.ruling.clone().unwrap_or_else(|| "（未裁决）".into())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter.clone();
+    opts.stage = pipeline::Stage::Review;
+    let assembled = assembly::assemble(&work_dir, &opts)?;
+
+    let mut spec = reviewer_spec(&assembled.system);
+    spec.sections.push(("task".to_string(), format!(
+        "复检 {ch_path}：下面是上轮问题清单与作者裁决。逐项核验：\
+         (a) 已修复项确认修复生效；(b) 未裁决(open)项若为硬伤给出修复提议，若不成立说明理由建议驳回；\
+         (c) 输出「复检结论：通过/不通过 + 原因」。\n\n# 上轮问题清单\n{dossier}"
+    )));
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(&queue.0),
+        on_proposal: Arc::new(move |p: &review::Proposal| {
+            let _ = app.emit("review:new", p);
+        }),
+    };
+    let prompt = format!(
+        "{}\n\n# 待复检章节\n{ch_path}\n\n请开始复检。",
+        assembly::render_prompt(&assembled)
+    );
+    let (recheck_text, _messages) = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| {
+            let _ = on_event.send(ev);
+        },
+    )
+    .await?;
+    if !recheck_text.trim().is_empty() {
+        let _ = issues::ingest_report(&work_dir, &chapter, "recheck", &recheck_text);
+    }
+    Ok(())
+}
+
+/// 卷级批审：逐章一致性检查（复用 review 逻辑），进度经 Channel 汇报。
+#[tauri::command]
+async fn review_volume(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    work_path: String,
+    volume: u32,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    let queue_arc: Arc<std::sync::Mutex<ReviewQueue>> = Arc::clone(&queue.0);
+    let work_dir = PathBuf::from(&work_path);
+    let work_dir = PathBuf::from(&work_path);
+    // 收集本卷正文章节
+    let chapters_dir = work_dir
+        .join(assembly::volume_dir(volume))
+        .join("chapters");
+    let mut chapters: Vec<String> = std::fs::read_dir(&chapters_dir)
+        .map_err(|e| format!("读取章节目录失败：{e}"))?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".md") && !name.contains("-章纲") {
+                Some(name.trim_end_matches(".md").to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    chapters.sort();
+    if chapters.is_empty() {
+        return Err(format!("第 {volume} 卷没有正文章节"));
+    }
+
+    let _ = on_event.send(AgentEvent::TextDelta {
+        text: format!("[卷级批审] 共 {} 章：{}\n", chapters.len(), chapters.join("、")),
+    });
+    let mut failed = Vec::new();
+    for ch in &chapters {
+        let _ = on_event.send(AgentEvent::TextDelta {
+            text: format!("\n[卷级批审] 开始 {ch} …\n"),
+        });
+        let result = run_review_core(
+            &app,
+            &queue_arc,
+            &work_dir,
+            volume,
+            ch,
+            "consistency",
+            &on_event,
+        )
+        .await;
+        if let Err(e) = result {
+            failed.push(format!("{ch}: {e}"));
+        }
+    }
+    let summary = if failed.is_empty() {
+        format!("\n[卷级批审] 全部 {} 章完成，问题清单见右栏/裁决后复检。\n", chapters.len())
+    } else {
+        format!("\n[卷级批审] 完成，部分失败：{}\n", failed.join("；"))
+    };
+    let _ = on_event.send(AgentEvent::TextDelta { text: summary });
+    Ok(())
+}
+
+/// 问题清单视图。
+#[tauri::command]
+fn list_issues(work_path: String, chapter: Option<String>) -> Result<Vec<issues::IssueRecord>, String> {
+    issues::list(&PathBuf::from(work_path), chapter.as_deref())
+}
+
+/// 裁决记录。
+#[tauri::command]
+fn record_issue_ruling(
+    work_path: String,
+    id: u64,
+    status: String,
+    note: Option<String>,
+) -> Result<(), String> {
+    issues::record_ruling(&PathBuf::from(work_path), id, &status, note)
 }
 
 // ---------------------------------------------------------------------------
@@ -644,6 +836,10 @@ pub fn run() {
             propose_ledger_update,
             preflight_chapter,
             review_chapter,
+            recheck_chapter,
+            review_volume,
+            list_issues,
+            record_issue_ruling,
             // diff 审阅
             list_proposals,
             apply_proposal,

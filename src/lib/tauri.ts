@@ -122,6 +122,16 @@ export interface AssemblyResult {
   cast: string[];
 }
 
+export interface IssueRecord {
+  id: number;
+  chapter: string;
+  created_at: string;
+  text: string;
+  source: string;
+  status: "open" | "fixed" | "dismissed" | "needs_ruling";
+  ruling: string | null;
+}
+
 export const api = {
   getWorksRoot: () => invoke<string>("get_works_root"),
   listWorks: () => invoke<WorkSummary[]>("list_works"),
@@ -271,6 +281,31 @@ export const api = {
       chapter,
       mode,
       onEvent,
+    }),
+  recheckChapter: (
+    workPath: string,
+    volume: number,
+    chapter: string,
+    onEvent: Channel<AgentEvent>,
+  ) => invoke<void>("recheck_chapter", { workPath, volume, chapter, onEvent }),
+  reviewVolume: (
+    workPath: string,
+    volume: number,
+    onEvent: Channel<AgentEvent>,
+  ) => invoke<void>("review_volume", { workPath, volume, onEvent }),
+  listIssues: (workPath: string, chapter?: string) =>
+    invoke<IssueRecord[]>("list_issues", { workPath, chapter: chapter ?? null }),
+  recordIssueRuling: (
+    workPath: string,
+    id: number,
+    status: "fixed" | "dismissed" | "needs_ruling",
+    note?: string,
+  ) =>
+    invoke<void>("record_issue_ruling", {
+      workPath,
+      id,
+      status,
+      note: note ?? null,
     }),
 
   // 会话
