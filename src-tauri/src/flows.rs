@@ -545,3 +545,58 @@ pub async fn tidy_flow(
     )
     .await
 }
+
+// ---------------------------------------------------------------------------
+// 上下文总览（R3：上下文面板与窗口用量指示的数据源）
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ContextOverview {
+    /// 本会话真实用量（provider 计数；会话不存在或未跑过时为 None）
+    pub session_usage: Option<kernel::UsageReport>,
+    /// 装配估算总量（D9 估算口径）
+    pub assembly_tokens: u64,
+    /// 装配估算是否超预算（R3 起仅软提示，不拦截）
+    pub assembly_over_budget: bool,
+    /// 实际生效档位（full/name_only/compact）
+    pub applied_detail: String,
+    /// 当前激活供应商的模型上下文窗口
+    pub context_window: u64,
+    /// 装配估算占窗口比例（0-100，两位小数）
+    pub assembly_percent: f64,
+}
+
+/// 组装上下文总览：会话真实用量 + 装配估算 + 模型窗口。
+pub fn context_overview(
+    work_path: &str,
+    session_id: Option<&str>,
+    volume: u32,
+    chapter: &str,
+) -> Result<ContextOverview, String> {
+    let work_dir = PathBuf::from(work_path);
+    let session_usage = session_id
+        .and_then(|id| session::load_session(&SessionStore::Work(work_dir.clone()), id).ok())
+        .and_then(|s| s.usage);
+
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter.to_string();
+    let assembled = assembly::assemble(&work_dir, &opts)?;
+
+    let context_window = kernel::current_settings()
+        .ok()
+        .and_then(|s| s.active().map(|p| p.context_window))
+        .unwrap_or(crate::settings::DEFAULT_CONTEXT_WINDOW)
+        .max(1);
+
+    let assembly_percent =
+        ((assembled.total_tokens as f64 / context_window as f64) * 10000.0).round() / 100.0;
+
+    Ok(ContextOverview {
+        session_usage,
+        assembly_tokens: assembled.total_tokens,
+        assembly_over_budget: assembled.over_budget,
+        applied_detail: assembled.applied_detail,
+        context_window,
+        assembly_percent,
+    })
+}

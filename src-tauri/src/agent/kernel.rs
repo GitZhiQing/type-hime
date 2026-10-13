@@ -292,6 +292,7 @@ mod tests {
                 base_url: "https://example.test/v1".into(),
                 api_key: "sk-test".into(),
                 default_model: "default-model".into(),
+                context_window: crate::settings::DEFAULT_CONTEXT_WINDOW,
             }],
             active_provider: Some("test".into()),
             agent_overrides: [("chat".to_string(), "chat-model".to_string())]

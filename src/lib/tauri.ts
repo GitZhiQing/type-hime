@@ -123,6 +123,7 @@ export interface ProviderPreset {
   base_url: string;
   no_key: boolean;
   fallback_model: string;
+  context_window: number;
 }
 
 export interface ProviderView {
@@ -132,6 +133,16 @@ export interface ProviderView {
   default_model: string;
   masked_key: string;
   no_key: boolean;
+  context_window: number;
+}
+
+export interface ContextOverview {
+  session_usage: { input_tokens: number; output_tokens: number } | null;
+  assembly_tokens: number;
+  assembly_over_budget: boolean;
+  applied_detail: string;
+  context_window: number;
+  assembly_percent: number;
 }
 
 export interface SettingsView {
@@ -275,6 +286,7 @@ export const api = {
     apiKey: string,
     defaultModel: string,
     activate: boolean,
+    contextWindow?: number,
   ) =>
     call<void>("upsert_provider", {
       id,
@@ -283,6 +295,7 @@ export const api = {
       apiKey,
       defaultModel,
       activate,
+      contextWindow: contextWindow ?? null,
     }),
   removeProvider: (id: string) => call<void>("remove_provider", { id }),
   setActiveProvider: (id: string) =>
@@ -438,6 +451,20 @@ export const api = {
     call<string[]>("preflight_chapter", { workPath, volume, chapter }),
   listSkills: (workPath?: string) =>
     call<SkillMeta[]>("list_skills", { workPath: workPath ?? null }),
+
+  // 上下文工程（R3）
+  contextOverview: (
+    workPath: string,
+    sessionId: string | null,
+    volume: number,
+    chapter: string,
+  ) =>
+    call<ContextOverview>("context_overview", {
+      workPath,
+      sessionId,
+      volume,
+      chapter,
+    }),
 
   // 成本账
   getUsageSummary: (workPath: string) =>

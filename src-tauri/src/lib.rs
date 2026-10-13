@@ -49,6 +49,7 @@ fn upsert_provider(
     base_url: String,
     api_key: String,
     default_model: String,
+    context_window: Option<u64>,
     activate: bool,
 ) -> Result<(), String> {
     let s = settings::load()?;
@@ -58,6 +59,7 @@ fn upsert_provider(
         base_url: base_url.trim().trim_end_matches('/').to_string(),
         api_key,
         default_model: default_model.trim().to_string(),
+        context_window: context_window.unwrap_or(settings::DEFAULT_CONTEXT_WINDOW),
     };
     let s = settings::upsert_provider(s, profile, activate)?;
     settings::save(&s)
@@ -248,6 +250,17 @@ fn preview_assembly(
     };
     opts.token_budget = token_budget;
     assembly::assemble(&PathBuf::from(work_path), &opts)
+}
+
+/// 上下文总览（R3）：会话真实用量 + 装配估算 + 模型窗口。
+#[tauri::command]
+fn context_overview(
+    work_path: String,
+    session_id: Option<String>,
+    volume: u32,
+    chapter: String,
+) -> Result<flows::ContextOverview, String> {
+    flows::context_overview(&work_path, session_id.as_deref(), volume, &chapter)
 }
 
 // ---------------------------------------------------------------------------
@@ -604,6 +617,7 @@ pub fn run() {
             get_ledger,
             preview_assembly,
             list_skills,
+            context_overview,
             // 会话
             list_sessions,
             rename_session,

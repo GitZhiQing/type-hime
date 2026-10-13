@@ -17,7 +17,12 @@ pub struct ProviderPreset {
     pub no_key: bool,
     /// 建议的默认模型（列表获取失败时的回落）
     pub fallback_model: String,
+    /// 建议的模型上下文窗口（R3：窗口用量指示的数据源，可手填覆盖）
+    pub context_window: u64,
 }
+
+/// 未配置窗口时的默认值（128k 为当前主流模型的保守下限）
+pub const DEFAULT_CONTEXT_WINDOW: u64 = 128_000;
 
 pub fn provider_presets() -> Vec<ProviderPreset> {
     vec![
@@ -27,6 +32,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
             base_url: "https://api.deepseek.com/v1".into(),
             no_key: false,
             fallback_model: "deepseek-chat".into(),
+            context_window: 128_000,
         },
         ProviderPreset {
             id: "zhipu".into(),
@@ -34,6 +40,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
             base_url: "https://open.bigmodel.cn/api/paas/v4".into(),
             no_key: false,
             fallback_model: "glm-4.7".into(),
+            context_window: 200_000,
         },
         ProviderPreset {
             id: "moonshot".into(),
@@ -41,6 +48,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
             base_url: "https://api.moonshot.cn/v1".into(),
             no_key: false,
             fallback_model: "kimi-latest".into(),
+            context_window: 256_000,
         },
         ProviderPreset {
             id: "openai".into(),
@@ -48,6 +56,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
             base_url: "https://api.openai.com/v1".into(),
             no_key: false,
             fallback_model: "gpt-5-mini".into(),
+            context_window: 400_000,
         },
         ProviderPreset {
             id: "openrouter".into(),
@@ -55,6 +64,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
             base_url: "https://openrouter.ai/api/v1".into(),
             no_key: false,
             fallback_model: "deepseek/deepseek-chat".into(),
+            context_window: 128_000,
         },
         ProviderPreset {
             id: "ollama".into(),
@@ -62,6 +72,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
             base_url: "http://localhost:11434/v1".into(),
             no_key: true,
             fallback_model: "qwen3:8b".into(),
+            context_window: 32_000,
         },
         ProviderPreset {
             id: "custom".into(),
@@ -69,6 +80,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
             base_url: String::new(),
             no_key: false,
             fallback_model: String::new(),
+            context_window: DEFAULT_CONTEXT_WINDOW,
         },
     ]
 }
@@ -85,6 +97,13 @@ pub struct ProviderProfile {
     /// 明文 key，只存本地
     pub api_key: String,
     pub default_model: String,
+    /// 模型上下文窗口（R3：窗口用量指示；旧档缺省为默认值）
+    #[serde(default = "default_context_window")]
+    pub context_window: u64,
+}
+
+fn default_context_window() -> u64 {
+    DEFAULT_CONTEXT_WINDOW
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -115,6 +134,7 @@ pub struct ProviderView {
     pub default_model: String,
     pub masked_key: String,
     pub no_key: bool,
+    pub context_window: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -158,6 +178,7 @@ pub fn to_view(s: &AppSettings) -> SettingsView {
                 default_model: p.default_model.clone(),
                 masked_key: mask_key(&p.api_key),
                 no_key: p.api_key.is_empty(),
+                context_window: p.context_window,
             })
             .collect(),
         active_provider: s.active_provider.clone(),
@@ -246,6 +267,7 @@ mod tests {
             base_url: "https://api.deepseek.com/v1".into(),
             api_key: "sk-1111111111111111111111111111".into(),
             default_model: "deepseek-chat".into(),
+            context_window: DEFAULT_CONTEXT_WINDOW,
         };
         let s = upsert_provider(s, p1.clone(), true).unwrap();
         assert_eq!(s.active().unwrap().id, "deepseek");
@@ -262,6 +284,7 @@ mod tests {
             base_url: "https://api.moonshot.cn/v1".into(),
             api_key: "sk-2222222222222222222222222222".into(),
             default_model: "kimi-latest".into(),
+            context_window: 256_000,
         };
         let s = upsert_provider(s, p2, false).unwrap();
         let s = set_active(s, "kimi").unwrap();

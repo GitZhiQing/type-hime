@@ -121,6 +121,9 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
                 base_url: s("baseUrl").trim_end_matches('/').to_string(),
                 api_key: s("apiKey"),
                 default_model: s("defaultModel"),
+                context_window: body["contextWindow"]
+                    .as_u64()
+                    .unwrap_or(settings::DEFAULT_CONTEXT_WINDOW),
             };
             let activate = body["activate"].as_bool().unwrap_or(false);
             ok!(settings::upsert_provider(cfg, profile, activate).and_then(|c| settings::save(&c)))
@@ -261,6 +264,12 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
             opt_str("workPath").map(PathBuf::from).as_deref(),
         ))
         .into_response(),
+        "context_overview" => ok!(flows::context_overview(
+            &s("workPath"),
+            opt_str("sessionId").as_deref(),
+            n("volume"),
+            &s("chapter")
+        )),
         "preview_assembly" => {
             let mut opts = assembly::AssemblyOptions::default();
             opts.volume = n("volume");

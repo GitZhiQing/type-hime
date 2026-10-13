@@ -28,7 +28,42 @@ pub fn volume_dir(volume: u32) -> String {
 }
 
 /// 近似 token 估算（UI 标注"估算"）。
+/// 带内容指纹缓存（借鉴 goose 的 token 计数缓存）：上下文面板高频刷新时避免重复遍历长文本。
 pub fn estimate_tokens(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    let key = hasher.finish();
+    if let Ok(cache) = token_cache().lock() {
+        if let Some(v) = cache.get(&key) {
+            CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return *v;
+        }
+    }
+    let v = estimate_tokens_uncached(text);
+    if let Ok(mut cache) = token_cache().lock() {
+        if cache.len() >= 4096 {
+            cache.clear(); // 简单上限，防长会话下无限增长
+        }
+        cache.insert(key, v);
+    }
+    v
+}
+
+fn token_cache() -> &'static std::sync::Mutex<std::collections::HashMap<u64, u64>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, u64>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 缓存命中计数（测试与诊断用）。
+pub fn token_cache_hits() -> u64 {
+    CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+static CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn estimate_tokens_uncached(text: &str) -> u64 {
     let mut cjk: u64 = 0;
     let mut other: u64 = 0;
     for ch in text.chars() {
@@ -371,6 +406,16 @@ mod tests {
         assert_eq!(estimate_tokens("abcdefgh"), 2);
         // 混合
         assert_eq!(estimate_tokens("一二ab"), 3);
+    }
+
+    #[test]
+    fn token_cache_hits_on_repeat() {
+        let unique = "缓存命中测试内容-abcxyz-987";
+        let before = token_cache_hits();
+        let a = estimate_tokens(unique);
+        let b = estimate_tokens(unique);
+        assert_eq!(a, b);
+        assert!(token_cache_hits() > before, "重复估算应命中缓存");
     }
 
     #[test]

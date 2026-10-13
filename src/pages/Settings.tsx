@@ -45,6 +45,8 @@ interface EditState {
   baseUrl: string;
   apiKey: string;
   defaultModel: string;
+  /** 模型上下文窗口（R3：窗口用量指示的数据源） */
+  contextWindow: number;
 }
 
 export function Settings() {
@@ -83,6 +85,7 @@ export function Settings() {
       baseUrl: preset.base_url,
       apiKey: "",
       defaultModel: preset.fallback_model,
+      contextWindow: preset.context_window,
     });
     setModels([]);
     setAddOpen(false);
@@ -95,6 +98,7 @@ export function Settings() {
       baseUrl: p.base_url,
       apiKey: "",
       defaultModel: p.default_model,
+      contextWindow: p.context_window,
     });
     setModels([]);
   }
@@ -111,6 +115,7 @@ export function Settings() {
         edit.apiKey,
         edit.defaultModel,
         false,
+        edit.contextWindow,
       );
       setEdit({ ...edit, apiKey: "" });
       const list = await api.listModels(edit.baseUrl, "");
@@ -133,6 +138,7 @@ export function Settings() {
         edit.apiKey,
         edit.defaultModel,
         activate,
+        edit.contextWindow,
       );
       setEdit(null);
       await refresh();
@@ -153,6 +159,7 @@ export function Settings() {
         edit.apiKey,
         edit.defaultModel,
         false,
+        edit.contextWindow,
       );
       setEdit({ ...edit, apiKey: "" });
       const r = await api.testProvider("", "", "");
@@ -375,6 +382,21 @@ export function Settings() {
                       获取列表
                     </Button>
                   </div>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="p-window">上下文窗口（tokens）</FieldLabel>
+                  <Input
+                    id="p-window"
+                    value={String(edit.contextWindow)}
+                    onChange={(e) =>
+                      setEdit({
+                        ...edit,
+                        contextWindow:
+                          Number(e.currentTarget.value.replace(/[^0-9]/g, "")) || 0,
+                      })
+                    }
+                    placeholder="128000"
+                  />
                 </Field>
               </FieldGroup>
             )}
