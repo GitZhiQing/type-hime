@@ -120,7 +120,10 @@ impl Tool for ReadFile {
                     content
                 }
             }
-            Err(e) => format!("[读取失败] {e}"),
+            Err(e) => format!(
+                "[读取失败] {}：{e}。注意路径是相对作品根的正斜杠路径（如 volumes/vol-01/chapters/ch-001.md、ledger/账本.md、outline/总纲.md、settings/characters/<人物名>.md）。请确认实际存在的路径后重试，不要连续尝试不存在的路径。",
+                args.path
+            ),
         })
     }
 

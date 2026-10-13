@@ -81,14 +81,16 @@ pub fn parse(raw: &str) -> Ledger {
     let mut title: Option<String> = None;
     let mut body = String::new();
     for line in raw.lines() {
-        if line.starts_with("## ") || line.starts_with("### ") {
+        // 宽容格式：条目行可能带列表前缀（如 "- ### 第1章"）
+        let stripped = line.trim_start_matches(['-', '*', ' ']);
+        if stripped.starts_with("## ") || stripped.starts_with("### ") {
             // 先收上一条
             if let Some(t) = title.take() {
                 bucket.push((cur.unwrap_or(2), t, std::mem::take(&mut body)));
             }
         }
-        if line.starts_with("## ") {
-            cur = match line.trim_start_matches("## ").trim() {
+        if stripped.starts_with("## ") {
+            cur = match stripped.trim_start_matches("## ").trim() {
                 "角色状态" => Some(0),
                 "已交代事实" => Some(1),
                 "伏笔登记" => Some(2),
@@ -96,8 +98,8 @@ pub fn parse(raw: &str) -> Ledger {
                 _ => None,
             };
             title = None;
-        } else if line.starts_with("### ") {
-            let t = line.trim_start_matches("### ").trim().to_string();
+        } else if stripped.starts_with("### ") {
+            let t = stripped.trim_start_matches("### ").trim().to_string();
             if !t.is_empty() && cur.is_some() {
                 title = Some(t);
             }
@@ -267,16 +269,23 @@ type: ledger
 
 ### 黑龙身份（未回收）
 埋设：第1章 / 计划回收：第一卷末
+
+## 时间线
+
+- ### 第1章 → 距开篇 0 天：主角进山。（ch-001）
 "#;
         let l = parse(raw);
         assert_eq!(l.characters.len(), 1);
         assert_eq!(l.facts.len(), 1);
         assert_eq!(l.foreshadows.len(), 1);
+        assert_eq!(l.timeline.len(), 1, "带列表前缀的时间线条目应可解析");
+        assert_eq!(l.timeline[0].last_touched, Some(1));
 
         let s = render_summary(&l);
         assert!(s.contains("- 林晚"));
         assert!(s.contains("- 黑令牌来历"));
         assert!(s.contains("不得说破"));
+        assert!(s.contains("时间线"));
 
         let empty = render_summary(&Ledger::default());
         assert!(empty.contains("账本为空"));

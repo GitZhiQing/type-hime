@@ -70,7 +70,7 @@ pub fn writer_spec(assembly_system: &str) -> AgentSpec {
         ],
         skills: vec!["writer-basics".to_string()],
         model_override: None,
-        max_turns: 8,
+        max_turns: 14,
     }
 }
 
@@ -119,7 +119,7 @@ pub fn ledger_spec() -> AgentSpec {
         tools: vec!["read_file".to_string(), "propose_edit".to_string()],
         skills: vec!["ledger-update".to_string()],
         model_override: None,
-        max_turns: 8,
+        max_turns: 12,
     }
 }
 
