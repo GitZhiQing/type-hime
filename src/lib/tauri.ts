@@ -88,8 +88,15 @@ export async function listenCompat<T>(
   const es = new EventSource("/api/events");
   es.onmessage = (msg: MessageEvent) => {
     try {
-      const data = JSON.parse(msg.data as string) as { event: string; payload: T };
-      if (data?.event === event) handler({ payload: data.payload });
+      const data = JSON.parse(msg.data as string) as { event: string; payload: unknown };
+      if (data?.event === event) {
+        // 兼容旧通道的双重编码（payload 曾为 JSON 字符串）
+        const payload =
+          typeof data.payload === "string"
+            ? (JSON.parse(data.payload) as T)
+            : (data.payload as T);
+        handler({ payload });
+      }
     } catch {
       /* 忽略非 JSON 帧与 keep-alive */
     }

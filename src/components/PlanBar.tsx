@@ -55,14 +55,14 @@ export function PlanBar({ workPath, pipeline, onChange }: PlanBarProps) {
           render={
             <button
               type="button"
-              className="flex items-center gap-0.5 font-medium text-muted-foreground hover:text-foreground"
+              className="group flex items-center gap-0.5 font-medium text-muted-foreground hover:text-foreground"
               aria-label="展开或折叠阶段计划"
-            >
-              <ChevronDown className="size-3.5 transition-transform group-data-[panel-open]:rotate-180" />
-              PLAN
-            </button>
+            />
           }
-        />
+        >
+          <ChevronDown className="size-3.5 transition-transform group-data-[panel-open]:rotate-180" />
+          PLAN
+        </CollapsibleTrigger>
         <span className="font-medium">{current?.label ?? "未进入阶段"}</span>
         <div className="flex items-center gap-1">
           {pipeline.gates.map((g) => (
@@ -106,32 +106,31 @@ export function PlanBar({ workPath, pipeline, onChange }: PlanBarProps) {
                   className="size-6 p-0 text-[11px]"
                   disabled={busy}
                   aria-label="阶段操作"
-                >
-                  ⋯
-                </Button>
+                />
               }
             >
-              <DropdownMenuContent align="end">
-                {current && (
-                  <>
-                    <DropdownMenuItem onClick={() => act(api.pipelineConfirm, current.stage)}>
-                      确认当前阶段（校验产物）
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => act(api.pipelineSkip, current.stage)}>
-                      显式跳过当前阶段（不校验）
-                    </DropdownMenuItem>
-                  </>
-                )}
-                {pipeline.gates
-                  .filter((g) => g.confirmed)
-                  .map((g) => (
-                    <DropdownMenuItem key={`redo-${g.stage}`} onClick={() => act(api.pipelineRedo, g.stage)}>
-                      <RotateCcw data-icon="inline-start" />
-                      重做「{g.label}」（其后确认一并取消）
-                    </DropdownMenuItem>
-                  ))}
-              </DropdownMenuContent>
+              ⋯
             </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {current && (
+                <>
+                  <DropdownMenuItem onClick={() => act(api.pipelineConfirm, current.stage)}>
+                    确认当前阶段（校验产物）
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => act(api.pipelineSkip, current.stage)}>
+                    显式跳过当前阶段（不校验）
+                  </DropdownMenuItem>
+                </>
+              )}
+              {pipeline.gates
+                .filter((g) => g.confirmed)
+                .map((g) => (
+                  <DropdownMenuItem key={`redo-${g.stage}`} onClick={() => act(api.pipelineRedo, g.stage)}>
+                    <RotateCcw data-icon="inline-start" />
+                    重做「{g.label}」（其后确认一并取消）
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
@@ -156,8 +155,10 @@ function nextHint(pipeline: PipelineView): string {
     if (cur.stage === "review") return "审校收敛（问题清单清零）即完成本卷";
     return `完成「${cur.label}」产物后确认推进`;
   }
-  const next = pipeline.gates.find((g) => g.enterable && !g.current);
-  return next ? `可进入「${next.label}」` : "全部阶段已确认";
+  const nextUnconfirmed = pipeline.gates.find((g) => g.enterable && !g.confirmed);
+  if (nextUnconfirmed) return `下一步：进入「${nextUnconfirmed.label}」`;
+  const anyStage = pipeline.gates.find((g) => g.enterable && !g.current);
+  return anyStage ? `可进入「${anyStage.label}」` : "全部阶段已确认";
 }
 
 function PlanChip({

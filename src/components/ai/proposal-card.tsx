@@ -129,7 +129,7 @@ export function ProposalCard({ item, workPath, onResolved }: ProposalCardProps) 
         </div>
       )}
       <Collapsible>
-        <CollapsibleTrigger className="flex w-full items-center gap-1 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="group flex w-full items-center gap-1 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
           <ChevronDown className="size-3 transition-transform group-data-[panel-open]:rotate-180" />
           查看 diff
         </CollapsibleTrigger>
