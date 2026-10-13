@@ -45,7 +45,7 @@ async fn run() -> Result<(), String> {
     if s.active().is_none() {
         return Err("无 active 供应商（先在应用设置页配置）".into());
     }
-    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::default()));
+    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::in_memory()));
     let mut pipeline_state = pipeline::load_pipeline(&dir)?;
     let mut token_curve: Vec<(String, u64)> = Vec::new();
 

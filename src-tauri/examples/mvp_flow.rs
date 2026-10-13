@@ -35,7 +35,7 @@ async fn run() -> Result<(), String> {
     if s.active().is_none() {
         return Err("无 active 供应商".into());
     }
-    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::default()));
+    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::in_memory()));
 
     // ---------- 1. 新建作品 ----------
     step("1", "新建作品（目录骨架 + git init + 首次提交）");

@@ -31,7 +31,7 @@ async fn run() -> Result<(), String> {
     println!("[2] 模型列表（{} 个）：{}", models.len(), models.join(", "));
 
     // 工具上下文：共享提议队列
-    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::default()));
+    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::in_memory()));
     let tool_ctx = ToolCtx::new(
         std::env::args()
             .nth(1)

@@ -40,7 +40,7 @@ async fn run() -> Result<(), String> {
     std::fs::create_dir_all(&base).unwrap();
     let work = works::create_work("回归验证", Some(base.to_string_lossy().into_owned()))?;
     let dir = PathBuf::from(&work.path);
-    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::default()));
+    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::in_memory()));
     let mut usage_hits = 0u64;
     let mut pass = Vec::new();
     let mut fail = Vec::new();

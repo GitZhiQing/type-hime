@@ -36,6 +36,9 @@ fn persist_path() -> Option<PathBuf> {
 }
 
 fn persist(queue: &ReviewQueue) {
+    if !queue.persist {
+        return; // 内存态队列（examples/测试）：不写共享文件，避免跨进程覆盖应用队列
+    }
     if let Some(path) = persist_path() {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -60,6 +63,15 @@ pub struct ReviewQueue {
     /// 拒绝反馈（带评论的拒绝）：chat_stream 时注入对应作品的会话上下文，驱动 Agent 修改重提
     #[serde(default)]
     feedback: Vec<RejectionFeedback>,
+    /// 是否持久化到 app data（应用进程 true；examples/测试用 `in_memory()` 关掉，
+    /// 否则测试进程的队列会把共享的 proposals.json 覆盖成自己的状态——R4 验收实见：
+    /// regression 运行清空了应用里问剑青云的待审提议）
+    #[serde(default = "default_persist")]
+    persist: bool,
+}
+
+fn default_persist() -> bool {
+    true
 }
 
 /// 拒绝反馈记录（R2-③：拒绝带评论，评论回流 Agent 上下文）。
@@ -72,6 +84,14 @@ pub struct RejectionFeedback {
 }
 
 impl ReviewQueue {
+    /// 内存态队列（不落盘）：examples/测试进程用，避免覆盖应用进程的共享提议文件。
+    pub fn in_memory() -> Self {
+        Self {
+            persist: false,
+            ..Default::default()
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,

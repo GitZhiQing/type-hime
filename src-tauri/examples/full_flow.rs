@@ -36,7 +36,7 @@ async fn run() -> Result<(), String> {
     if settings.active().is_none() {
         return Err("无 active 供应商".into());
     }
-    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::default()));
+    let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::in_memory()));
     let vol = 1u32;
     let chapter = "ch-001".to_string();
 
