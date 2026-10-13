@@ -15,8 +15,9 @@ export type MessageProps = HTMLAttributes<HTMLDivElement> & {
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
-      "group flex w-full max-w-[95%] flex-col gap-1",
-      from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
+      "group flex w-full flex-col gap-1",
+      // 用户消息：右对齐窄栏（气泡样式）；AI 消息：全宽无气泡（内容直接落底）
+      from === "user" ? "is-user ml-auto max-w-[85%] justify-end" : "is-assistant",
       className,
     )}
     data-from={from}
@@ -38,10 +39,10 @@ export const MessageContent = ({
   <div
     className={cn(
       "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-      // 用户气泡：右对齐 + 主色底
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-primary group-[.is-user]:px-3 group-[.is-user]:py-2 group-[.is-user]:text-primary-foreground",
-      // 助手：左对齐 + 中性底
-      "group-[.is-assistant]:rounded-lg group-[.is-assistant]:bg-muted group-[.is-assistant]:px-3 group-[.is-assistant]:py-2 group-[.is-assistant]:text-foreground",
+      // 用户气泡：浅色底 + 大圆角，右对齐（主流 AI Chat 惯例）
+      "group-[.is-user]:ml-auto group-[.is-user]:rounded-2xl group-[.is-user]:bg-muted group-[.is-user]:px-3.5 group-[.is-user]:py-2 group-[.is-user]:text-foreground",
+      // AI 消息：无背景气泡，内容全宽直排
+      "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       pulsing && "animate-pulse",
       className,
     )}
