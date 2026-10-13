@@ -147,11 +147,12 @@ pub struct AssemblyResult {
     /// 被可见性红线过滤掉的条目数（审计展示）
     pub filtered_by_visibility: usize,
     pub total_tokens: u64,
+    /// 超预算标记（R3 起仅软提示：不拦截、不自动降档，用户可自行调档位/预算）
     pub over_budget: bool,
-    /// 实际生效的档位（预算驱动自动降档后可能低于请求档位）
+    /// 软提示文本（超预算说明等）；None = 无警告
+    pub warning: Option<String>,
+    /// 实际生效的档位（R3 起 == 请求档位，不再自动降档）
     pub applied_detail: String,
-    /// 是否发生了自动降档
-    pub downgraded: bool,
     /// 出场过滤后保留的设定条目名（cast_filter 生效时）
     pub cast: Vec<String>,
 }
@@ -165,24 +166,17 @@ fn read_stripped(work_dir: &Path, rel: &str) -> Option<String> {
 }
 
 /// 装配（预览与实际生成共用同一出口）。
-/// 预算驱动自动降档：请求档位超预算时依次尝试更低档位（Full→NameOnly→Compact），
-/// 全部超预算时按 Compact 输出并标记 over_budget。
+/// R3 语义：请求档位精确生效，不再静默自动降档；超预算仅返回 warning 软提示
+/// （可见性过滤仍为出口强制红线，不受档位/预算影响）。
 pub fn assemble(work_dir: &Path, opts: &AssemblyOptions) -> Result<AssemblyResult, String> {
-    let ladder: Vec<Detail> = match opts.setting_detail {
-        Detail::Full => vec![Detail::Full, Detail::NameOnly, Detail::Compact],
-        Detail::NameOnly => vec![Detail::NameOnly, Detail::Compact],
-        Detail::Compact => vec![Detail::Compact],
-    };
-
-    let mut last = None;
-    for detail in ladder {
-        let result = assemble_at(work_dir, opts, detail)?;
-        if !result.over_budget {
-            return Ok(result);
-        }
-        last = Some(result);
+    let mut result = assemble_at(work_dir, opts, opts.setting_detail)?;
+    if result.over_budget {
+        result.warning = Some(format!(
+            "装配估算约 {} tokens，超出预算 {}（仅提示，可调档位/预算或精简账本设定）",
+            result.total_tokens, opts.token_budget
+        ));
     }
-    Ok(last.expect("ladder 非空"))
+    Ok(result)
 }
 
 fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Result<AssemblyResult, String> {
@@ -350,8 +344,8 @@ fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Resul
         filtered_by_visibility: filtered,
         total_tokens: total,
         over_budget: total > opts.token_budget,
+        warning: None,
         applied_detail: detail_label.to_string(),
-        downgraded: detail != opts.setting_detail,
         cast,
     })
 }
@@ -468,22 +462,23 @@ mod tests {
         assert!(all2.contains("林晚"));
         assert!(!all2.contains("剑心通明"), "仅名称档不进条目正文");
 
-        // 预算极小：自动降档到最后仍超 → over_budget 且 applied_detail=compact
+        // 预算极小 + 请求 Full：不降档不拦截，仅软提示（R3 语义）
         let mut opts2 = AssemblyOptions::default();
         opts2.chapter = "ch-002".into();
         opts2.token_budget = 10;
         let r3 = assemble(&dir, &opts2).unwrap();
         assert!(r3.over_budget);
-        assert_eq!(r3.applied_detail, "compact");
-        assert!(r3.downgraded);
+        assert_eq!(r3.applied_detail, "full", "请求档位精确生效，不再自动降档");
+        assert!(r3.warning.is_some(), "超预算应返回软提示");
+        assert!(render_prompt(&r3).contains("剑心通明"), "内容仍按请求档位装配");
 
-        // 预算中等：Full 超但 Compact 不超 → 自动降档且不飘红
+        // 预算充足：无提示、无超限
         let mut opts3 = AssemblyOptions::default();
         opts3.chapter = "ch-002".into();
-        opts3.token_budget = r2.total_tokens; // r2 是 NameOnly 实际值
+        opts3.token_budget = 1_000_000;
         let r4 = assemble(&dir, &opts3).unwrap();
-        assert!(!r4.over_budget, "应有可满足的降档档位");
-        assert!(r4.downgraded || r4.total_tokens <= r4.total_tokens);
+        assert!(!r4.over_budget);
+        assert!(r4.warning.is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

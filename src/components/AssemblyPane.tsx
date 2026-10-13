@@ -12,10 +12,6 @@ interface AssemblyPaneProps {
   workPath: string;
 }
 
-function appliedLabel(d: string): string {
-  return d === "full" ? "完整" : d === "name_only" ? "仅名称" : "紧凑";
-}
-
 export function AssemblyPane({ workPath }: AssemblyPaneProps) {
   const [volume, setVolume] = useState("1");
   const [chapter, setChapter] = useState("ch-001");
@@ -106,15 +102,13 @@ export function AssemblyPane({ workPath }: AssemblyPaneProps) {
         </Button>
       </div>
 
-      {/* token 预算条 */}
+      {/* token 预算条（R3：超预算仅软提示，不拦截不降档） */}
       <div className="shrink-0 border-b px-3 py-2">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className={cn(over ? "font-medium text-red-600" : "text-muted-foreground")}>
+          <span className={cn(over ? "text-amber-600" : "text-muted-foreground")}>
             {over && <AlertTriangle className="mr-1 inline size-3.5" />}
             估算 {result?.total_tokens ?? 0} / {Number(budget) || 0} tokens
-            {result?.downgraded && (
-              <span className="ml-1 text-amber-600">（已自动降档至 {appliedLabel(result.applied_detail)}）</span>
-            )}
+            {over && <span className="ml-1">（超出预算，仅提示不拦截）</span>}
           </span>
           <span className="flex items-center gap-2">
             {result && result.cast.length > 0 && (
@@ -134,11 +128,14 @@ export function AssemblyPane({ workPath }: AssemblyPaneProps) {
           <div
             className={cn(
               "h-full rounded-full transition-all",
-              over ? "bg-red-500" : "bg-emerald-500",
+              over ? "bg-amber-500" : "bg-emerald-500",
             )}
             style={{ width: `${pct}%` }}
           />
         </div>
+        {result?.warning && (
+          <div className="mt-1 text-[11px] text-amber-600">{result.warning}</div>
+        )}
       </div>
 
       {error && (

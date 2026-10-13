@@ -242,8 +242,9 @@ export interface AssemblyResult {
   filtered_by_visibility: number;
   total_tokens: number;
   over_budget: boolean;
+  /** 软提示（R3：超预算仅提示，不拦截不降档）；null = 无警告 */
+  warning: string | null;
   applied_detail: "full" | "name_only" | "compact";
-  downgraded: boolean;
   cast: string[];
 }
 

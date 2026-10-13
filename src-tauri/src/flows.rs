@@ -178,13 +178,8 @@ pub async fn generate_artifact_flow(
         Stage::Chapters
     };
 
+    // R3：超预算不再拦截（仅装配软提示）；生成照常进行，由用户按需调档位/预算
     let assembled = assembly::assemble(&work_dir, &opts)?;
-    if assembled.over_budget {
-        return Err(format!(
-            "装配已自动降档至 {} 仍约 {} tokens，超出预算 {}；请精简账本/设定或提高预算",
-            assembled.applied_detail, assembled.total_tokens, opts.token_budget
-        ));
-    }
 
     let (file_hint, stage_hint, expect) = if target == "chapter_outline" {
         (
