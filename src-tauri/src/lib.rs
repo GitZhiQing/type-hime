@@ -1,22 +1,27 @@
 pub mod agent;
 mod frontmatter;
-mod git;
+pub mod git;
 pub mod ledger;
 pub mod lore;
 mod pipeline;
+pub mod review;
 pub mod settings;
 pub mod works;
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use tauri::ipc::Channel;
+use tauri::{AppHandle, Emitter, State};
 
 use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
 use agent::spec::{chat_spec, AgentSpec};
+use agent::tools::ToolCtx;
 use lore::{SettingMeta, Visibility};
 use pipeline::{PipelineState, PipelineView, Stage};
+use review::{Proposal, SharedQueue};
 use settings::{ProviderProfile, SettingsView};
 use works::{TreeNode, WorkSummary};
 
@@ -236,8 +241,11 @@ fn load_session_view(work_path: String, session_id: String) -> Result<Vec<sessio
 }
 
 /// 流式对话：事件经 Channel 推前端；结束后历史落盘。
+/// chat agent 带全工具（含提议工具）——旁路产物经 diff 审阅回流（D0-5）。
 #[tauri::command]
 async fn chat_stream(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
     work_path: String,
     session_id: String,
     prompt: String,
@@ -247,6 +255,14 @@ async fn chat_stream(
     let settings = kernel::current_settings()?;
     let spec: AgentSpec = chat_spec();
 
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(&queue.0),
+        on_proposal: Arc::new(move |p: &Proposal| {
+            let _ = app.emit("review:new", p);
+        }),
+    };
+
     let mut sess = session::load_session(&work_dir, &session_id).unwrap_or(Session {
         id: session_id.clone(),
         created_at: works::now_iso(),
@@ -254,20 +270,57 @@ async fn chat_stream(
     });
 
     let history = sess.messages.clone();
-    let (_text, new_messages) =
-        kernel::run(&settings, Some(&work_dir), &spec, history, &prompt, move |ev| {
+    let (_text, new_messages) = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        history,
+        &prompt,
+        move |ev| {
             let _ = on_event.send(ev);
-        })
-        .await?;
+        },
+    )
+    .await?;
 
     sess.messages.extend(new_messages);
     session::save_session(&work_dir, &sess)
+}
+
+// ---------------------------------------------------------------------------
+// diff 审阅
+
+#[tauri::command]
+fn list_proposals(queue: State<'_, SharedQueue>) -> Vec<Proposal> {
+    queue.0.lock().unwrap().list()
+}
+
+#[tauri::command]
+fn apply_proposal(queue: State<'_, SharedQueue>, work_path: String, id: u64) -> Result<String, String> {
+    let p = queue
+        .0
+        .lock()
+        .unwrap()
+        .take(id)
+        .ok_or(format!("提议 #{id} 不存在（可能已被处理）"))?;
+    review::apply(&PathBuf::from(work_path), p)
+}
+
+#[tauri::command]
+fn reject_proposal(queue: State<'_, SharedQueue>, id: u64) -> Result<(), String> {
+    queue
+        .0
+        .lock()
+        .unwrap()
+        .take(id)
+        .ok_or(format!("提议 #{id} 不存在（可能已被处理）"))?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(SharedQueue::default())
         .invoke_handler(tauri::generate_handler![
             // 作品底座
             get_works_root,
@@ -304,6 +357,10 @@ pub fn run() {
             list_sessions,
             load_session_view,
             chat_stream,
+            // diff 审阅
+            list_proposals,
+            apply_proposal,
+            reject_proposal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -27,6 +27,7 @@ futures = "0.3"
 dirs = "6"
 dunce = "1"
 schemars = "1"
+similar = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt"] }

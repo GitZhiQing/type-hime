@@ -93,6 +93,15 @@ export interface Ledger {
   foreshadows: string[];
 }
 
+export interface Proposal {
+  id: number;
+  rel_path: string;
+  diff: string;
+  reason: string;
+  is_new_file: boolean;
+  created_at: string;
+}
+
 export const api = {
   getWorksRoot: () => invoke<string>("get_works_root"),
   listWorks: () => invoke<WorkSummary[]>("list_works"),
@@ -185,6 +194,12 @@ export const api = {
       openAtVol,
     }),
   getLedger: (workPath: string) => invoke<Ledger>("get_ledger", { workPath }),
+
+  // diff 审阅
+  listProposals: () => invoke<Proposal[]>("list_proposals"),
+  applyProposal: (workPath: string, id: number) =>
+    invoke<string>("apply_proposal", { workPath, id }),
+  rejectProposal: (id: number) => invoke<void>("reject_proposal", { id }),
 
   // 会话
   listSessions: (workPath: string) =>

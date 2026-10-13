@@ -11,6 +11,8 @@ import { ResourceTree } from "@/components/ResourceTree";
 import { EditorPane } from "@/components/EditorPane";
 import { ChatPane } from "@/components/ChatPane";
 import { StageBar } from "@/components/StageBar";
+import { DiffPane } from "@/components/DiffPane";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -239,11 +241,22 @@ export function Workbench() {
         <ResizableHandle withHandle />
 
         <ResizablePanel defaultSize={34} minSize={18}>
-          <EditorPane
-            workPath={work.path}
-            relPath={selected && !selected.is_dir ? selected.path : null}
-            onFileCreated={refresh}
-          />
+          <Tabs defaultValue="editor" className="flex h-full flex-col">
+            <TabsList className="m-2 grid w-auto grid-cols-2 self-start">
+              <TabsTrigger value="editor">编辑器</TabsTrigger>
+              <TabsTrigger value="review">审阅</TabsTrigger>
+            </TabsList>
+            <TabsContent value="editor" className="mt-0 flex-1 data-[state=inactive]:hidden">
+              <EditorPane
+                workPath={work.path}
+                relPath={selected && !selected.is_dir ? selected.path : null}
+                onFileCreated={refresh}
+              />
+            </TabsContent>
+            <TabsContent value="review" className="mt-0 flex-1 data-[state=inactive]:hidden">
+              <DiffPane workPath={workPath} onApplied={refresh} />
+            </TabsContent>
+          </Tabs>
         </ResizablePanel>
       </ResizablePanelGroup>
 

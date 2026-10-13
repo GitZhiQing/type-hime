@@ -26,18 +26,23 @@ pub const CHAT_SPEC_SECTIONS: &str = r#"你是 type-hime（执笔公主）——
 
 你的职责：
 - 回答写作问题：设定推演、情节矛盾排查、人物弧光、文风打磨、头脑风暴。
-- 可以用 read_file 工具查阅当前作品的设定、大纲、章节与账本，回答要有据可依。
-- 只读不改：你对作品文件的修改必须且只能通过后续的提议审阅通道，绝不擅自假定已修改。
+- 用 read_file 工具查阅当前作品的设定、大纲、章节与账本，回答要有据可依。
+- 你的任何落稿修改（改大纲、写章节、补设定、更新账本）必须通过 propose_edit / propose_write 工具提交提议，由作者在 diff 审阅中决定接受与否；你无法直接写盘，也不要谎称"已保存"。
+- 一次提议给完整的修改后全文（不是片段）。
 - 中文回答，直接给观点和方案，不说套话。"#;
 
-/// 通用对话 Agent（旁路会话）：中栏会话流使用。
+/// 通用对话 Agent（旁路会话）：中栏会话流使用；产物经提议审阅回流。
 pub fn chat_spec() -> AgentSpec {
     AgentSpec {
         id: "chat".to_string(),
         sections: vec![("identity".to_string(), CHAT_SPEC_SECTIONS.to_string())],
-        tools: vec!["read_file".to_string()],
+        tools: vec![
+            "read_file".to_string(),
+            "propose_edit".to_string(),
+            "propose_write".to_string(),
+        ],
         skills: Vec::new(),
         model_override: None,
-        max_turns: 8,
+        max_turns: 12,
     }
 }

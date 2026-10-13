@@ -13,7 +13,7 @@ use rig::streaming::{Item, StreamEvent};
 use super::events::AgentEvent;
 use super::skills;
 use super::spec::AgentSpec;
-use super::tools;
+use super::tools::{self, ToolCtx};
 use crate::settings::{self, AppSettings};
 
 /// 解析 spec 实际使用的模型 id：spec 覆盖 > settings 覆盖 > active 供应商默认。
@@ -59,7 +59,7 @@ pub fn build_preamble(spec: &AgentSpec, work_dir: Option<&Path>) -> String {
 /// 一次完整的 agent 运行：流式翻译事件并回调；返回 (最终文本, 本轮新增消息)。
 pub async fn run<F>(
     settings: &AppSettings,
-    work_dir: Option<&Path>,
+    tool_ctx: Option<&ToolCtx>,
     spec: &AgentSpec,
     history: Vec<Message>,
     prompt: &str,
@@ -79,31 +79,35 @@ where
         .client()
         .chat(model_id);
 
-    let preamble = build_preamble(spec, work_dir);
+    let preamble = build_preamble(spec, tool_ctx.map(|c| c.work_root.as_path()));
 
     let base = AgentBuilder::new(model)
         .preamble(preamble)
         .default_max_turns(spec.max_turns);
 
-    // rig 的 AgentBuilder 是 typestate：第一个 tool() 转换状态，其后链式追加
-    let agent = if let Some(dir) = work_dir {
-        let entries = tools::build_tools(&dir.to_path_buf(), &spec.tools);
-        match entries.split_first() {
+    // rig 的 AgentBuilder 是 typestate：第一个 tool() 转换状态（NoToolConfig→WithBuilderTools），
+    // 其后 tool() 返回 Self 可链式追加
+    let agent = match tool_ctx.map(|ctx| tools::build_tools(ctx, &spec.tools)) {
+        None => base.build(),
+        Some(entries) => match entries.split_first() {
             None => base.build(),
             Some((first, rest)) => {
-                let mut b = match first {
+                let b = match first {
                     tools::ToolEntry::ReadFile(t) => base.tool(t.clone()),
+                    tools::ToolEntry::ProposeEdit(t) => base.tool(t.clone()),
+                    tools::ToolEntry::ProposeWrite(t) => base.tool(t.clone()),
                 };
+                let mut b = b;
                 for entry in rest {
                     b = match entry {
                         tools::ToolEntry::ReadFile(t) => b.tool(t.clone()),
+                        tools::ToolEntry::ProposeEdit(t) => b.tool(t.clone()),
+                        tools::ToolEntry::ProposeWrite(t) => b.tool(t.clone()),
                     };
                 }
                 b.build()
             }
-        }
-    } else {
-        base.build()
+        },
     };
 
     let mut stream = agent.prompt(prompt).history(history).stream();

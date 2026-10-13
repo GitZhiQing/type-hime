@@ -286,6 +286,11 @@ fn dunce_canonical(path: &Path) -> Result<PathBuf, String> {
     dunce::canonicalize(path).map_err(|e| format!("解析路径失败：{e}"))
 }
 
+/// 校验路径并返回绝对目标（供外部模块写盘复用；不写盘本身）。
+pub fn ensure_writable(work_dir: &Path, rel: &str) -> Result<PathBuf, String> {
+    safe_rel(work_dir, rel)
+}
+
 pub fn read_file(work_dir: &Path, rel: &str) -> Result<String, String> {
     let path = safe_rel(work_dir, rel)?;
     std::fs::read_to_string(&path).map_err(|e| format!("读取 {rel} 失败：{e}"))
