@@ -255,6 +255,20 @@ export const api = {
       chapter,
       onEvent,
     }),
+  reviewChapter: (
+    workPath: string,
+    volume: number,
+    chapter: string,
+    mode: "consistency" | "deai",
+    onEvent: Channel<AgentEvent>,
+  ) =>
+    invoke<void>("review_chapter", {
+      workPath,
+      volume,
+      chapter,
+      mode,
+      onEvent,
+    }),
 
   // 会话
   listSessions: (workPath: string) =>

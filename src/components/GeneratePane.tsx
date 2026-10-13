@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "cn";
-import { BookMarked, FileSignature, Loader2, Play, ScrollText } from "lucide-react";
+import { BookMarked, FileSignature, Loader2, Play, ScrollText, ShieldCheck, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface GeneratePaneProps {
@@ -13,18 +13,18 @@ interface GeneratePaneProps {
   onProposal: () => void;
 }
 
-type Target = "chapter_outline" | "chapter";
+type Target = "chapter_outline" | "chapter" | "ledger" | "consistency" | "deai";
 
 export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
   const [volume, setVolume] = useState("1");
   const [chapter, setChapter] = useState("ch-001");
-  const [busy, setBusy] = useState<Target | "ledger" | null>(null);
+  const [busy, setBusy] = useState<Target | null>(null);
   const [streamText, setStreamText] = useState("");
   const [trace, setTrace] = useState<string[]>([]);
   const [doneHint, setDoneHint] = useState("");
 
   async function run(
-    kind: Target | "ledger",
+    kind: Target,
     invoke: (ch: Channel<AgentEvent>) => Promise<void>,
   ) {
     setBusy(kind);
@@ -57,16 +57,18 @@ export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
   const vol = Number(volume) || 1;
   const ch = chapter.trim() || "ch-001";
 
-  function generate(target: Target) {
-    run(target, (channel) =>
-      api.generateArtifact(workPath, vol, ch, target, channel),
-    );
-  }
-
-  function ledgerUpdate() {
-    run("ledger", (channel) =>
-      api.proposeLedgerUpdate(workPath, vol, ch, channel),
-    );
+  function fire(target: Target) {
+    const invocations: Record<
+      Target,
+      (channel: Channel<AgentEvent>) => Promise<void>
+    > = {
+      chapter_outline: (c) => api.generateArtifact(workPath, vol, ch, "chapter_outline", c),
+      chapter: (c) => api.generateArtifact(workPath, vol, ch, "chapter", c),
+      ledger: (c) => api.proposeLedgerUpdate(workPath, vol, ch, c),
+      consistency: (c) => api.reviewChapter(workPath, vol, ch, "consistency", c),
+      deai: (c) => api.reviewChapter(workPath, vol, ch, "deai", c),
+    };
+    run(target, invocations[target]);
   }
 
   return (
@@ -88,40 +90,40 @@ export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
             className="h-7 w-24 font-mono"
           />
         </label>
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex flex-wrap gap-1">
           <Button
             size="sm"
             variant="outline"
             className="h-7 text-xs"
             disabled={busy !== null}
-            onClick={() => generate("chapter_outline")}
+            onClick={() => fire("chapter_outline")}
           >
             {busy === "chapter_outline" ? (
               <Loader2 data-icon="inline-start" className="animate-spin" />
             ) : (
               <BookMarked data-icon="inline-start" />
             )}
-            生成章纲
+            章纲
           </Button>
           <Button
             size="sm"
             className="h-7 text-xs"
             disabled={busy !== null}
-            onClick={() => generate("chapter")}
+            onClick={() => fire("chapter")}
           >
             {busy === "chapter" ? (
               <Loader2 data-icon="inline-start" className="animate-spin" />
             ) : (
               <Play data-icon="inline-start" />
             )}
-            生成正文
+            正文
           </Button>
           <Button
             size="sm"
             variant="outline"
             className="h-7 text-xs"
             disabled={busy !== null}
-            onClick={ledgerUpdate}
+            onClick={() => fire("ledger")}
             title="完稿一章后：从正文提取状态变化，提议更新账本"
           >
             {busy === "ledger" ? (
@@ -130,6 +132,36 @@ export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
               <ScrollText data-icon="inline-start" />
             )}
             账本回写
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={busy !== null}
+            onClick={() => fire("consistency")}
+            title="对照账本与设定找矛盾，出问题清单并提议修复"
+          >
+            {busy === "consistency" ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <ShieldCheck data-icon="inline-start" />
+            )}
+            一致性检查
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={busy !== null}
+            onClick={() => fire("deai")}
+            title="文风指令约束下去 AI 味改写整章"
+          >
+            {busy === "deai" ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <Wand2 data-icon="inline-start" />
+            )}
+            去 AI 味
           </Button>
         </div>
       </div>

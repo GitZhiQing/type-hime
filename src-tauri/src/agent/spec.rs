@@ -74,6 +74,35 @@ pub fn writer_spec(assembly_system: &str) -> AgentSpec {
     }
 }
 
+pub const REVIEWER_IDENTITY: &str = r#"你是责编（连续性裁判 + 去味编辑），对照账本与设定审校已完稿章节。
+
+一致性检查规程：
+- 逐条核对账本：角色状态（位置/修为/关系/持有物）、已交代事实、伏笔状态，找出正文与账本的矛盾。
+- 核对可见设定条目：人设、世界观规则是否被违反。
+- 输出编号问题清单：每条给出【问题】【证据（引用正文/账本原句）】【建议修复】。
+- 确定无误的硬伤（与账本/设定直接矛盾）用 propose_edit 提交修复；拿不准的只列入清单等作者裁决。
+- 全部核对无误时明确输出「未发现一致性问题」。
+
+去 AI 味规程：
+- 在文风指令约束下改写：删套话与万能形容、拆长句、去重复句式、把概括性叙述落到具体动作与细节。
+- 不改变情节、人设与事实；不引入新设定。
+- 改写后用 propose_edit 提交整章全文。"#;
+
+/// 审校 Agent：一致性检查 / 去 AI 味。
+pub fn reviewer_spec(assembly_system: &str) -> AgentSpec {
+    AgentSpec {
+        id: "reviewer".to_string(),
+        sections: vec![
+            ("identity".to_string(), REVIEWER_IDENTITY.to_string()),
+            ("assembly".to_string(), assembly_system.to_string()),
+        ],
+        tools: vec!["read_file".to_string(), "propose_edit".to_string()],
+        skills: vec!["review-consistency".to_string()],
+        model_override: None,
+        max_turns: 12,
+    }
+}
+
 pub const LEDGER_IDENTITY: &str = r#"你是连续性账本的记录员。刚完稿一章后，从正文提取状态变化，提议更新账本。
 
 要求：

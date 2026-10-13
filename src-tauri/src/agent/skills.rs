@@ -22,6 +22,10 @@ pub struct Skill {
 const BUILTIN_SKILLS: &[(&str, &str)] = &[
     ("writer-basics.md", include_str!("skills/writer-basics.md")),
     ("ledger-update.md", include_str!("skills/ledger-update.md")),
+    (
+        "review-consistency.md",
+        include_str!("skills/review-consistency.md"),
+    ),
 ];
 
 /// 解析单个 md 文件为 Skill；frontmatter 缺 name 时以文件名为名。

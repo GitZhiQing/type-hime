@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter, State};
 use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
-use agent::spec::{chat_spec, ledger_spec, writer_spec, AgentSpec};
+use agent::spec::{chat_spec, ledger_spec, reviewer_spec, writer_spec, AgentSpec};
 use agent::tools::ToolCtx;
 use lore::{SettingMeta, Visibility};
 use pipeline::{PipelineState, PipelineView, Stage};
@@ -452,6 +452,78 @@ async fn propose_ledger_update(
     Ok(())
 }
 
+/// 审校：一致性检查 / 去 AI 味。mode: "consistency" | "deai"
+#[tauri::command]
+async fn review_chapter(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    mode: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let settings = kernel::current_settings()?;
+
+    let ch_path = assembly::chapter_path(volume, &chapter);
+    if !work_dir.join(&ch_path).exists() {
+        return Err(format!("本章正文不存在：{ch_path}"));
+    }
+
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter.clone();
+    opts.stage = pipeline::Stage::Review;
+    let assembled = assembly::assemble(&work_dir, &opts)?;
+
+    let mut spec = reviewer_spec(&assembled.system);
+    let task = if mode == "deai" {
+        format!(
+            "对 {ch_path} 执行「去 AI 味」：按文风指令改写整章，用 propose_edit 提交整章全文（路径 {ch_path}）。"
+        )
+    } else {
+        format!(
+            "对 {ch_path} 执行「一致性检查」：先 read 正文与账本/设定，输出编号问题清单；\
+             确定的硬伤用 propose_edit 提交修复（路径 {ch_path}），拿不准的只列清单。"
+        )
+    };
+    spec.sections.push(("task".to_string(), task));
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(&queue.0),
+        on_proposal: Arc::new(move |p: &review::Proposal| {
+            let _ = app.emit("review:new", p);
+        }),
+    };
+
+    let prompt = format!(
+        "{}\n\n# 待审章节\n{ch_path}\n\n请开始审校。",
+        assembly::render_prompt(&assembled)
+    );
+
+    let (_text, messages) = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| {
+            let _ = on_event.send(ev);
+        },
+    )
+    .await?;
+
+    let sess = Session {
+        id: format!("review-{mode}-{volume:02}-{chapter}"),
+        created_at: works::now_iso(),
+        messages,
+    };
+    let _ = session::save_session(&work_dir, &sess);
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // diff 审阅
 
@@ -527,6 +599,7 @@ pub fn run() {
             // 生成流水线
             generate_artifact,
             propose_ledger_update,
+            review_chapter,
             // diff 审阅
             list_proposals,
             apply_proposal,
