@@ -2,7 +2,7 @@
 //! 阶段顺序写死；每阶段进入条件 = 上游产物已确认；门不满足则拦截。
 //! 阶段可重做（重做会连带取消其后所有确认）；跳过需显式确认（同确认语义，UI 区分文案）。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -234,24 +234,62 @@ struct ProjectMeta {
     created_at: String,
     #[serde(default)]
     pipeline: PipelineState,
+    #[serde(default)]
+    assembly_prefs: AssemblyPrefs,
+}
+
+/// 装配偏好（R3：上下文面板控制，持久化于 project.json；生成流读取后应用）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AssemblyPrefs {
+    /// 档位：full | name_only | compact（None = 默认 full）
+    #[serde(default)]
+    pub setting_detail: Option<String>,
+    /// token 预算（None = 默认 16000）
+    #[serde(default)]
+    pub token_budget: Option<u64>,
+    /// 排除的装配组件名（组件级开关；可见性红线不受此影响）
+    #[serde(default)]
+    pub exclude_components: Vec<String>,
+}
+
+fn meta_path(work_dir: &Path) -> PathBuf {
+    work_dir.join("project.json")
 }
 
 pub fn load_pipeline(work_dir: &Path) -> Result<PipelineState, String> {
-    let path = work_dir.join("project.json");
-    let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取 project.json 失败：{e}"))?;
+    let raw = std::fs::read_to_string(meta_path(work_dir))
+        .map_err(|e| format!("读取 project.json 失败：{e}"))?;
     let meta: ProjectMeta =
         serde_json::from_str(&raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
     Ok(meta.pipeline)
 }
 
 pub fn save_pipeline(work_dir: &Path, pipeline: &PipelineState) -> Result<(), String> {
-    let path = work_dir.join("project.json");
-    let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取 project.json 失败：{e}"))?;
+    let raw = std::fs::read_to_string(meta_path(work_dir))
+        .map_err(|e| format!("读取 project.json 失败：{e}"))?;
     let mut meta: ProjectMeta =
         serde_json::from_str(&raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
     meta.pipeline = pipeline.clone();
     let out = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
-    std::fs::write(&path, out).map_err(|e| format!("写入 project.json 失败：{e}"))
+    std::fs::write(meta_path(work_dir), out).map_err(|e| format!("写入 project.json 失败：{e}"))
+}
+
+pub fn load_assembly_prefs(work_dir: &Path) -> Result<AssemblyPrefs, String> {
+    let raw = std::fs::read_to_string(meta_path(work_dir))
+        .map_err(|e| format!("读取 project.json 失败：{e}"))?;
+    let meta: ProjectMeta =
+        serde_json::from_str(&raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
+    Ok(meta.assembly_prefs)
+}
+
+pub fn save_assembly_prefs(work_dir: &Path, prefs: &AssemblyPrefs) -> Result<(), String> {
+    let raw = std::fs::read_to_string(meta_path(work_dir))
+        .map_err(|e| format!("读取 project.json 失败：{e}"))?;
+    let mut meta: ProjectMeta =
+        serde_json::from_str(&raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
+    meta.assembly_prefs = prefs.clone();
+    let out = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
+    std::fs::write(meta_path(work_dir), out).map_err(|e| format!("写入 project.json 失败：{e}"))
 }
 
 #[cfg(test)]

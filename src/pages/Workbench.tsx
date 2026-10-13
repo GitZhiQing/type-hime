@@ -13,6 +13,7 @@ import { ChatPane } from "@/components/ChatPane";
 import { SessionList } from "@/components/SessionList";
 import { GeneratePane } from "@/components/GeneratePane";
 import { PlanBar } from "@/components/PlanBar";
+import { ContextBar } from "@/components/ContextBar";
 import { DiffPane } from "@/components/DiffPane";
 import { AssemblyPane } from "@/components/AssemblyPane";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -272,13 +273,20 @@ export function Workbench() {
             onNewSession={createSession}
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
             planSlot={
-              pipeline ? (
-                <PlanBar
+              <>
+                {pipeline && (
+                  <PlanBar
+                    workPath={workPath}
+                    pipeline={pipeline}
+                    onChange={setPipeline}
+                  />
+                )}
+                <ContextBar
                   workPath={workPath}
-                  pipeline={pipeline}
-                  onChange={setPipeline}
+                  sessionId={sessionId}
+                  refreshKey={sessionRefresh}
                 />
-              ) : undefined
+              </>
             }
           />
         </ResizablePanel>

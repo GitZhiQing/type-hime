@@ -280,7 +280,31 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
                 _ => lore::Detail::Full,
             };
             opts.token_budget = body["tokenBudget"].as_u64().unwrap_or(16000);
+            opts.exclude_components = body["excludeComponents"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
             ok!(assembly::assemble(&PathBuf::from(s("workPath")), &opts))
+        }
+        "get_assembly_prefs" => ok!(pipeline::load_assembly_prefs(&PathBuf::from(s("workPath")))),
+        "set_assembly_prefs" => {
+            let prefs = pipeline::AssemblyPrefs {
+                setting_detail: opt_str("settingDetail"),
+                token_budget: body["tokenBudget"].as_u64(),
+                exclude_components: body["excludeComponents"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            };
+            ok!(pipeline::save_assembly_prefs(&PathBuf::from(s("workPath")), &prefs))
         }
 
         // ---- 生成（流式 SSE） ----

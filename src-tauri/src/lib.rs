@@ -231,7 +231,7 @@ fn get_ledger(work_path: String) -> Result<ledger::Ledger, String> {
     ledger::read_ledger(&PathBuf::from(work_path))
 }
 
-/// 装配预览（档位/预算可调，实际生成共用同一出口；超预算自动降档）。
+/// 装配预览（档位/预算可调，实际生成共用同一出口；超预算仅软提示）。
 #[tauri::command]
 fn preview_assembly(
     work_path: String,
@@ -239,6 +239,7 @@ fn preview_assembly(
     chapter: String,
     setting_detail: String,
     token_budget: u64,
+    exclude_components: Option<Vec<String>>,
 ) -> Result<assembly::AssemblyResult, String> {
     let mut opts = assembly::AssemblyOptions::default();
     opts.volume = volume;
@@ -249,7 +250,30 @@ fn preview_assembly(
         _ => lore::Detail::Full,
     };
     opts.token_budget = token_budget;
+    opts.exclude_components = exclude_components.unwrap_or_default();
     assembly::assemble(&PathBuf::from(work_path), &opts)
+}
+
+/// 装配偏好读取（R3 上下文面板；存 project.json）。
+#[tauri::command]
+fn get_assembly_prefs(work_path: String) -> Result<pipeline::AssemblyPrefs, String> {
+    pipeline::load_assembly_prefs(&PathBuf::from(work_path))
+}
+
+/// 装配偏好保存（档位/预算/组件排除）。
+#[tauri::command]
+fn set_assembly_prefs(
+    work_path: String,
+    setting_detail: Option<String>,
+    token_budget: Option<u64>,
+    exclude_components: Vec<String>,
+) -> Result<(), String> {
+    let prefs = pipeline::AssemblyPrefs {
+        setting_detail,
+        token_budget,
+        exclude_components,
+    };
+    pipeline::save_assembly_prefs(&PathBuf::from(work_path), &prefs)
 }
 
 /// 上下文总览（R3）：会话真实用量 + 装配估算 + 模型窗口。
@@ -616,6 +640,8 @@ pub fn run() {
             set_setting_visibility,
             get_ledger,
             preview_assembly,
+            get_assembly_prefs,
+            set_assembly_prefs,
             list_skills,
             context_overview,
             // 会话

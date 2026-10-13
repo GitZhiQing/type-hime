@@ -90,15 +90,18 @@ pub struct AssemblyOptions {
     pub volume: u32,
     /// 目标章节 id（如 ch-001）
     pub chapter: String,
-    /// 设定条目档位（预算内可自动降档）
+    /// 设定条目档位（R3 起精确生效，不再自动降档）
     pub setting_detail: Detail,
-    /// token 预算（超出时自动降档：Full→NameOnly→Compact）
+    /// token 预算（R3 起仅用于软提示）
     pub token_budget: u64,
     /// 按本章章纲过滤出场设定（默认开；审校阶段自动关闭）
     #[serde(default = "default_true")]
     pub cast_filter: bool,
     /// 账本活跃窗口（最近 N 章有更新的条目注入完整正文）
     pub ledger_window: u32,
+    /// 排除的装配组件名（R3 上下文面板组件级开关；可见性红线不受此影响）
+    #[serde(default)]
+    pub exclude_components: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -115,6 +118,7 @@ impl Default for AssemblyOptions {
             token_budget: 16_000,
             cast_filter: true,
             ledger_window: 3,
+            exclude_components: Vec::new(),
         }
     }
 }
@@ -184,6 +188,10 @@ fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Resul
     let mut filtered = 0usize;
 
     let mut push = |name: String, content: Option<String>, hint: &str| {
+        // 组件级排除（上下文面板开关；仅影响装配展示/注入，不触碰可见性红线）
+        if opts.exclude_components.iter().any(|e| e == &name) {
+            return;
+        }
         match content {
             Some(c) if !c.trim().is_empty() => components.push(AssembledComponent {
                 tokens: estimate_tokens(&c),

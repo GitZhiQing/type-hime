@@ -145,6 +145,13 @@ export interface ContextOverview {
   assembly_percent: number;
 }
 
+/** 装配偏好（R3 上下文面板；存 project.json） */
+export interface AssemblyPrefs {
+  setting_detail: string | null;
+  token_budget: number | null;
+  exclude_components: string[];
+}
+
 export interface SettingsView {
   providers: ProviderView[];
   active_provider: string | null;
@@ -367,6 +374,7 @@ export const api = {
     chapter: string,
     settingDetail: "full" | "name_only",
     tokenBudget: number,
+    excludeComponents?: string[],
   ) =>
     call<AssemblyResult>("preview_assembly", {
       workPath,
@@ -374,6 +382,16 @@ export const api = {
       chapter,
       settingDetail,
       tokenBudget,
+      excludeComponents: excludeComponents ?? null,
+    }),
+  getAssemblyPrefs: (workPath: string) =>
+    call<AssemblyPrefs>("get_assembly_prefs", { workPath }),
+  setAssemblyPrefs: (workPath: string, prefs: AssemblyPrefs) =>
+    call<void>("set_assembly_prefs", {
+      workPath,
+      settingDetail: prefs.setting_detail,
+      tokenBudget: prefs.token_budget,
+      excludeComponents: prefs.exclude_components,
     }),
 
   // 生成流水线

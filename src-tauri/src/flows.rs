@@ -177,6 +177,20 @@ pub async fn generate_artifact_flow(
     } else {
         Stage::Chapters
     };
+    // R3：应用 project.json 的装配偏好（上下文面板控制的档位/预算/组件开关）
+    if let Ok(prefs) = pipeline::load_assembly_prefs(&work_dir) {
+        if let Some(d) = &prefs.setting_detail {
+            opts.setting_detail = match d.as_str() {
+                "name_only" => crate::lore::Detail::NameOnly,
+                "compact" => crate::lore::Detail::Compact,
+                _ => crate::lore::Detail::Full,
+            };
+        }
+        if let Some(b) = prefs.token_budget {
+            opts.token_budget = b;
+        }
+        opts.exclude_components = prefs.exclude_components.clone();
+    }
 
     // R3：超预算不再拦截（仅装配软提示）；生成照常进行，由用户按需调档位/预算
     let assembled = assembly::assemble(&work_dir, &opts)?;
