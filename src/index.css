@@ -3,6 +3,10 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+/* Tailwind 默认不扫描 node_modules；显式纳入 streamdown，保证其全部效用类
+   被生成（曾缺 pointer-events-auto 导致复制按钮物理不可点） */
+@source "../../node_modules/streamdown/dist/*.js";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -175,6 +179,12 @@
   backdrop-filter: blur(4px);
   opacity: 0.45;
   transition: opacity 0.15s ease;
+  /* 浮动层不拦截指针（保证代码文本可选中）；可点性由 actions 重新打开 */
+  pointer-events: none;
+}
+.md-response [data-streamdown="code-block-actions"] {
+  /* 显式声明，不依赖 Tailwind 为 node_modules 生成工具类（曾因此物理不可点） */
+  pointer-events: auto;
 }
 .md-response [data-streamdown="code-block"]:hover > div:has([data-streamdown="code-block-copy-button"]),
 .md-response [data-streamdown="code-block"] > div:has([data-streamdown="code-block-copy-button"]):hover {
