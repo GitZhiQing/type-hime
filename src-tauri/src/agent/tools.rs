@@ -440,7 +440,8 @@ pub struct Bash {
     ctx: ToolCtx,
 }
 
-/// 执行超时（秒）：只读命令应短小；超时放弃等待（spawn_blocking 里子进程可能仍在后台，R4-② 补进程终止）。
+/// 执行超时（秒）：只读命令应短小；超时放弃等待（子进程可能仍在后台——已知限制，
+/// 需要强杀须引入进程组/Job Object，成本高于收益，暂不做）。
 const BASH_TIMEOUT_SECS: u64 = 30;
 
 impl Tool for Bash {

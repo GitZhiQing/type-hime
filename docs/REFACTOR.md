@@ -31,7 +31,7 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 | A4 | token 计数指纹缓存：同内容不重复估算 | goose DashMap 计数缓存 | R3 |
 | A5 | 会话搜索：前缀/子串匹配起步（零依赖），Tantivy 全文索引后置为量级升级路径 | aichat（Tantivy 方案） | R1（轻量版）+ R7（升级版） |
 | A6 | MCP 工具生态：登记 MCP server → rmcp → rig 动态发现工具 → 统一权限检查器管控 | rig 官方 MCP 集成、goose 扩展哲学 | R7（后置） |
-| A7 | `config.example` 惯例：权限/白名单/上下文偏好等用户可编辑配置均提供示例文件入库 | aichat | R3/R4 |
+| A7 | `config.example` 惯例：权限/白名单/上下文偏好等用户可编辑配置均提供示例文件入库 | aichat | R3/R4（已落 `docs/config.example/`） |
 
 ### 1.3 明确不采纳（记录理由，防反复）
 

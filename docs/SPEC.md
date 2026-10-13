@@ -8,7 +8,7 @@ note: 产品形态按 docs/REDESIGN.md（已确认）演进为「Agent 驱动的
 
 > 对齐产物（2026-10-13）：单机自用 / 中文网文长篇 / 长篇优先单卷走通 / 固定流水线 / 双层 git / 规则装配 / Rig 接模型。
 > 重设计对齐（2026-10-14）：产品形态演进为「Agent 驱动的写作工作台」——聊天为核心 + 制品面板 + PLAN 条 + 权限两档（D30，原三档收敛）；设计 [REDESIGN.md](REDESIGN.md)，执行 [REFACTOR.md](REFACTOR.md)。
-> 调研依据：[ai写小说技术方案 · 调研报告](../research/ai写小说技术方案-2026-10-13/REPORT.md)
+> 调研依据：立项期《ai 写小说技术方案》调研报告（原始文件已不在库内）；现行调研结论与来源见 [REFACTOR.md](REFACTOR.md) §1（社区 Rust Agent 调研与设计采纳）与 [DECISIONS.md](DECISIONS.md)。
 
 ## 问题
 
