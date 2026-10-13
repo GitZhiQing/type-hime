@@ -227,7 +227,7 @@ fn get_ledger(work_path: String) -> Result<ledger::Ledger, String> {
     ledger::read_ledger(&PathBuf::from(work_path))
 }
 
-/// 装配预览（档位/预算可调，实际生成共用同一出口）。
+/// 装配预览（档位/预算可调，实际生成共用同一出口；超预算自动降档）。
 #[tauri::command]
 fn preview_assembly(
     work_path: String,
@@ -239,10 +239,10 @@ fn preview_assembly(
     let mut opts = assembly::AssemblyOptions::default();
     opts.volume = volume;
     opts.chapter = chapter;
-    opts.setting_detail = if setting_detail == "name_only" {
-        lore::Detail::NameOnly
-    } else {
-        lore::Detail::Full
+    opts.setting_detail = match setting_detail.as_str() {
+        "name_only" => lore::Detail::NameOnly,
+        "compact" => lore::Detail::Compact,
+        _ => lore::Detail::Full,
     };
     opts.token_budget = token_budget;
     assembly::assemble(&PathBuf::from(work_path), &opts)
@@ -338,8 +338,8 @@ async fn generate_artifact(
     let assembled = assembly::assemble(&work_dir, &opts)?;
     if assembled.over_budget {
         return Err(format!(
-            "装配结果约 {} tokens，超出预算 {}；请调低档位或预算",
-            assembled.total_tokens, opts.token_budget
+            "装配已自动降档至 {} 仍约 {} tokens，超出预算 {}；请精简账本/设定或提高预算",
+            assembled.applied_detail, assembled.total_tokens, opts.token_budget
         ));
     }
 

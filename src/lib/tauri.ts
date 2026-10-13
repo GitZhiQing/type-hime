@@ -117,6 +117,9 @@ export interface AssemblyResult {
   filtered_by_visibility: number;
   total_tokens: number;
   over_budget: boolean;
+  applied_detail: "full" | "name_only" | "compact";
+  downgraded: boolean;
+  cast: string[];
 }
 
 export const api = {

@@ -16,13 +16,14 @@ pub enum Visibility {
     Hidden,
 }
 
-/// 装配档位：完整正文 / 仅名称。
+/// 装配档位：完整正文 / 仅名称 / 紧凑（设定仅名称 + 账本压到零活跃窗口）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Detail {
     #[default]
     Full,
     NameOnly,
+    Compact,
 }
 
 /// 设定条目元数据

@@ -12,6 +12,10 @@ interface AssemblyPaneProps {
   workPath: string;
 }
 
+function appliedLabel(d: string): string {
+  return d === "full" ? "完整" : d === "name_only" ? "仅名称" : "紧凑";
+}
+
 export function AssemblyPane({ workPath }: AssemblyPaneProps) {
   const [volume, setVolume] = useState("1");
   const [chapter, setChapter] = useState("ch-001");
@@ -77,8 +81,7 @@ export function AssemblyPane({ workPath }: AssemblyPaneProps) {
           >
             <option value="full">完整</option>
             <option value="name_only">仅名称</option>
-          </select>
-        </label>
+          </select>        </label>
         <label className="flex items-center gap-1">
           预算
           <Input
@@ -109,13 +112,23 @@ export function AssemblyPane({ workPath }: AssemblyPaneProps) {
           <span className={cn(over ? "font-medium text-red-600" : "text-muted-foreground")}>
             {over && <AlertTriangle className="mr-1 inline size-3.5" />}
             估算 {result?.total_tokens ?? 0} / {Number(budget) || 0} tokens
+            {result?.downgraded && (
+              <span className="ml-1 text-amber-600">（已自动降档至 {appliedLabel(result.applied_detail)}）</span>
+            )}
           </span>
-          {(result?.filtered_by_visibility ?? 0) > 0 && (
-            <span className="flex items-center gap-1 text-amber-600">
-              <EyeOff className="size-3.5" />
-              {result!.filtered_by_visibility} 条被可见性红线过滤
-            </span>
-          )}
+          <span className="flex items-center gap-2">
+            {result && result.cast.length > 0 && (
+              <span className="max-w-48 truncate text-muted-foreground" title={result.cast.join("、")}>
+                出场：{result.cast.join("、")}
+              </span>
+            )}
+            {(result?.filtered_by_visibility ?? 0) > 0 && (
+              <span className="flex items-center gap-1 text-amber-600">
+                <EyeOff className="size-3.5" />
+                {result!.filtered_by_visibility} 条被红线过滤
+              </span>
+            )}
+          </span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-muted">
           <div
