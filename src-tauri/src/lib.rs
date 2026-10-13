@@ -318,7 +318,7 @@ fn load_session_view(work_path: String, session_id: String) -> Result<Vec<sessio
         &session::SessionStore::Work(PathBuf::from(work_path)),
         &session_id,
     )?;
-    Ok(s.messages.iter().map(session::message_view).collect())
+    Ok(session::message_views(&s.messages))
 }
 
 #[tauri::command]
@@ -339,7 +339,7 @@ fn delete_session_global(session_id: String) -> Result<(), String> {
 #[tauri::command]
 fn load_session_view_global(session_id: String) -> Result<Vec<session::MessageView>, String> {
     let s = session::load_session(&session::SessionStore::Global, &session_id)?;
-    Ok(s.messages.iter().map(session::message_view).collect())
+    Ok(session::message_views(&s.messages))
 }
 
 #[tauri::command]

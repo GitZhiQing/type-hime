@@ -8,160 +8,195 @@ import { cn } from "cn";
 import {
   CheckCircleIcon,
   ChevronDownIcon,
-  CircleIcon,
   ClockIcon,
   WrenchIcon,
   XCircleIcon,
 } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
-import { isValidElement } from "react";
+import type { ComponentProps } from "react";
 
 /**
- * 改编自 Vercel AI Elements 的 Tool 组件（源码复制路线，R2 spike）：
- * - Collapsible 基座 radix → base-ui（data-state=open → data-open）
- * - `ai` 包的 ToolUIPart 类型 → 本地 ToolState 联合
- * - CodeBlock（shiki 高亮）→ 轻量 pre
+ * 工具调用气泡（改编自 Vercel AI Elements 的 Tool 组件，D26 路线；R3.5 优化）：
+ * - 中文工具名 + 关键参数摘要常显（如「读取文件 · outline/总纲.md」）
+ * - 展开查看参数（键值列表，超大字段折叠为字数提示）与结果（限高滚动）
+ * - 历史会话（load_session_view 的结构化 tool_calls）与流式事件共用本组件
  */
 
-export type ToolProps = ComponentProps<typeof Collapsible>;
+export interface ToolCallData {
+  name: string;
+  /** JSON 字符串（与流式 AgentEvent.tool_call.args 同构） */
+  args: string;
+  /** null = 尚无结果（运行中） */
+  result: string | null;
+  isError?: boolean;
+}
 
-export const Tool = ({ className, ...props }: ToolProps) => (
-  <Collapsible
-    className={cn("group not-prose w-full rounded-md border", className)}
-    {...props}
-  />
-);
-
-/** 工具调用状态（与 AgentEvent 的 tool_call/tool_result 对应；approval-* 为 R4 预留） */
-export type ToolState =
-  | "input-streaming"
-  | "input-available"
-  | "output-available"
-  | "output-error"
-  | "approval-requested";
-
-const statusLabels: Record<ToolState, string> = {
-  "approval-requested": "待审批",
-  "input-available": "运行中",
-  "input-streaming": "等待",
-  "output-available": "完成",
-  "output-error": "出错",
+const TOOL_LABELS: Record<string, string> = {
+  read_file: "读取文件",
+  propose_edit: "提交修改提议",
+  propose_write: "提交新建提议",
+  bash: "执行命令",
+  run_flow: "执行流程",
+  get_ledger: "读取账本",
+  list_issues: "读取问题清单",
+  list_lore: "查询设定库",
+  check_visibility_leak: "泄漏检查",
+  preflight_chapter: "修为预检",
 };
 
-const statusIcons: Record<ToolState, ReactNode> = {
-  "approval-requested": <ClockIcon className="size-3.5 text-yellow-600" />,
-  "input-available": <ClockIcon className="size-3.5 animate-pulse" />,
-  "input-streaming": <CircleIcon className="size-3.5" />,
-  "output-available": <CheckCircleIcon className="size-3.5 text-green-600" />,
-  "output-error": <XCircleIcon className="size-3.5 text-red-600" />,
-};
+export function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name;
+}
 
-export const getStatusBadge = (status: ToolState) => (
-  <Badge className="gap-1 rounded-full text-xs" variant="secondary">
-    {statusIcons[status]}
-    {statusLabels[status]}
-  </Badge>
-);
+/** 大字段不直接渲染（展示字数摘要） */
+const LARGE_FIELDS = new Set(["new_content", "content"]);
+const MAX_INLINE = 300;
 
-export type ToolHeaderProps = {
-  title?: string;
-  state: ToolState;
+function safeParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/** 参数摘要行：优先展示 path，附上 reason 等短文本 */
+export function toolSummary(args: string): string {
+  const parsed = safeParse(args);
+  if (typeof parsed !== "object" || parsed === null) return "";
+  const o = parsed as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of ["path", "rel_path", "command", "kind"]) {
+    const v = o[key];
+    if (typeof v === "string" && v) parts.push(v);
+  }
+  for (const key of ["reason", "description"]) {
+    const v = o[key];
+    if (typeof v === "string" && v) parts.push(v);
+  }
+  return parts.join(" · ");
+}
+
+/** 参数键值行（跳过超大字段，标注字数） */
+function argEntries(args: string): { key: string; value: string; note?: string }[] {
+  const parsed = safeParse(args);
+  if (typeof parsed !== "object" || parsed === null) {
+    return [{ key: "原始参数", value: String(parsed).slice(0, MAX_INLINE) }];
+  }
+  return Object.entries(parsed as Record<string, unknown>).map(([key, v]) => {
+    if (LARGE_FIELDS.has(key) && typeof v === "string") {
+      return { key, value: "", note: `全文 ${v.length} 字（已折叠，见对应提议卡片）` };
+    }
+    const s = typeof v === "string" ? v : JSON.stringify(v);
+    return { key, value: s.length > MAX_INLINE ? s.slice(0, MAX_INLINE) + "…" : s };
+  });
+}
+
+export type ToolCallCardProps = {
+  call: ToolCallData;
+  /** 流式运行中（结果未到）：默认展开参数 */
   className?: string;
-} & Omit<ComponentProps<typeof CollapsibleTrigger>, "title">;
-
-export const ToolHeader = ({
-  className,
-  title,
-  state,
-  ...props
-}: ToolHeaderProps) => (
-  <CollapsibleTrigger
-    className={cn(
-      "group flex w-full items-center justify-between gap-4 px-3 py-2",
-      className,
-    )}
-    {...props}
-  >
-    <div className="flex items-center gap-2">
-      <WrenchIcon className="size-4 text-muted-foreground" />
-      <span className="text-sm font-medium">{title}</span>
-      {getStatusBadge(state)}
-    </div>
-    <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180" />
-  </CollapsibleTrigger>
-);
-
-export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
-
-export const ToolContent = ({ className, ...props }: ToolContentProps) => (
-  <CollapsibleContent className={cn("space-y-3 p-3 text-sm", className)} {...props} />
-);
-
-export type ToolInputProps = ComponentProps<"div"> & {
-  input: unknown;
 };
 
-export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-1.5 overflow-hidden", className)} {...props}>
-    <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-      参数
-    </h4>
-    <div className="rounded-md bg-muted/50">
-      <Code pre={JSON.stringify(input, null, 2)} />
-    </div>
-  </div>
-);
-
-export type ToolOutputProps = ComponentProps<"div"> & {
-  output: unknown;
-  errorText?: string | null;
-};
-
-export const ToolOutput = ({
-  className,
-  output,
-  errorText,
-  ...props
-}: ToolOutputProps) => {
-  if (!(output || errorText)) {
-    return null;
-  }
-
-  let Output = <div>{output as ReactNode}</div>;
-  if (typeof output === "object" && output !== null && !isValidElement(output)) {
-    Output = <Code pre={JSON.stringify(output, null, 2)} />;
-  } else if (typeof output === "string") {
-    Output = <Code pre={output} />;
-  }
+export function ToolCallCard({ call, className }: ToolCallCardProps) {
+  const running = call.result === null;
+  const error = !running && !!call.isError;
+  const summary = toolSummary(call.args);
+  const entries = argEntries(call.args);
 
   return (
-    <div className={cn("space-y-1.5", className)} {...props}>
-      <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        {errorText ? "错误" : "结果"}
-      </h4>
-      <div
-        className={cn(
-          "overflow-x-auto rounded-md text-xs",
-          errorText
-            ? "bg-destructive/10 text-destructive"
-            : "bg-muted/50 text-foreground",
+    <Collapsible
+      defaultOpen={running}
+      className={cn("group w-full rounded-md border bg-muted/20", className)}
+    >
+      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
+        <WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 text-xs font-medium">{toolLabel(call.name)}</span>
+        {summary && (
+          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+            {summary}
+          </span>
         )}
-      >
-        {errorText && <div className="p-2">{errorText}</div>}
-        {Output}
-      </div>
-    </div>
+        <span className="ml-auto shrink-0">
+          {running ? (
+            <Badge className="gap-1 rounded-full text-[10px]" variant="secondary">
+              <ClockIcon className="size-3 animate-pulse" />
+              运行中
+            </Badge>
+          ) : error ? (
+            <Badge className="gap-1 rounded-full text-[10px] text-red-600" variant="secondary">
+              <XCircleIcon className="size-3" />
+              出错
+            </Badge>
+          ) : (
+            <Badge className="gap-1 rounded-full text-[10px]" variant="secondary">
+              <CheckCircleIcon className="size-3 text-green-600" />
+              完成
+            </Badge>
+          )}
+        </span>
+        <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="space-y-2 border-t px-2.5 py-2">
+          <div>
+            <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              参数
+            </div>
+            <div className="space-y-0.5">
+              {entries.map((e) => (
+                <div key={e.key} className="flex gap-2 text-[11px]">
+                  <span className="shrink-0 font-mono text-muted-foreground">{e.key}</span>
+                  {e.note ? (
+                    <span className="text-muted-foreground/70 italic">{e.note}</span>
+                  ) : (
+                    <span className="min-w-0 break-all whitespace-pre-wrap">{e.value}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          {!running && (
+            <div>
+              <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                结果
+              </div>
+              <div
+                className={cn(
+                  "max-h-52 overflow-auto rounded-sm p-1.5",
+                  error ? "bg-destructive/10 text-destructive" : "bg-muted/50",
+                )}
+              >
+                <Code pre={prettyResult(call.result)} />
+              </div>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
-};
+}
 
-/** 轻量代码块（替代 AI Elements 的 shiki CodeBlock） */
-export function Code({ pre, className }: { pre: string; className?: string }) {
+/** 结果美化：JSON 字符串则缩进展示，否则原样 */
+function prettyResult(result: string | null): string {
+  if (result === null) return "";
+  const parsed = safeParse(result);
+  if (typeof parsed === "string") return parsed;
+  return JSON.stringify(parsed, null, 2);
+}
+
+/** 轻量代码块 */
+export function Code({
+  pre,
+  className,
+  ...props
+}: { pre: string } & ComponentProps<"pre">) {
   return (
     <pre
       className={cn(
-        "max-h-60 overflow-auto p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all",
+        "font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all",
         className,
       )}
+      {...props}
     >
       {pre}
     </pre>

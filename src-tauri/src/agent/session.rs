@@ -67,6 +67,8 @@ impl SessionStore {
 pub struct MessageView {
     pub role: String,
     pub text: String,
+    /// 本消息发起的工具调用（已配对结果）
+    pub tool_calls: Vec<ToolCallView>,
 }
 
 pub fn new_session_id() -> String {
@@ -170,42 +172,121 @@ pub fn delete_session(store: &SessionStore, id: &str) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| format!("删除会话失败：{e}"))
 }
 
-/// rig Message → 前端视图（提取文本部分）。
-pub fn message_view(m: &Message) -> MessageView {
+/// 一次工具调用（结构化持久化：前端可展开查看参数与结果，与流式事件同构）。
+#[derive(Debug, Serialize, Clone)]
+pub struct ToolCallView {
+    pub name: String,
+    /// JSON 字符串（与 AgentEvent.tool_call.args 同构）
+    pub args: String,
+    /// 已配对的工具结果（文本或 JSON 序列化）；None = 无结果记录
+    pub result: Option<String>,
+    pub is_error: bool,
+}
+
+/// 会话消息序列 → 前端视图（含工具调用配对）。
+/// 工具结果在 rig 中以 User 角色承载（UserContent::ToolResult），按 call_id
+/// 配对到发起它的 Assistant 工具调用上；纯工具结果消息不再输出为独立气泡。
+pub fn message_views(messages: &[Message]) -> Vec<MessageView> {
     use rig::completion::message::UserContent;
     use rig::completion::AssistantContent;
-    match m {
-        Message::System { content } => MessageView {
-            role: "system".into(),
-            text: content.clone(),
-        },
-        Message::User { content } => {
-            let text = content
-                .iter()
-                .filter_map(|c| match c {
-                    UserContent::Text(t) => Some(t.text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            MessageView { role: "user".into(), text }
-        }
-        Message::Assistant(a) => {
-            let text = a
-                .content
-                .iter()
-                .filter_map(|c| match c {
-                    AssistantContent::Text(t) => Some(t.text.clone()),
-                    AssistantContent::ToolCall(tc) => {
-                        Some(format!("[调用工具 {}]", tc.function.name))
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            MessageView { role: "assistant".into(), text }
+
+    // 第一遍：收集全部工具结果（call_id → 文本 + 是否错误）
+    let mut results: std::collections::HashMap<String, (String, bool)> =
+        std::collections::HashMap::new();
+    for m in messages {
+        if let Message::User { content } = m {
+            for c in content.iter() {
+                if let UserContent::ToolResult(tr) = c {
+                    let text = tr
+                        .content
+                        .iter()
+                        .filter_map(|item| match item {
+                            rig::completion::message::ToolResultContent::Text(t) => {
+                                Some(t.text.clone())
+                            }
+                            rig::completion::message::ToolResultContent::Json { value } => {
+                                Some(value.to_string())
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    results.insert(tr.call.to_string(), (text, tr.is_error));
+                }
+            }
         }
     }
+
+    // 第二遍：生成视图
+    let mut out = Vec::new();
+    for m in messages {
+        match m {
+            Message::System { content } => out.push(MessageView {
+                role: "system".into(),
+                text: content.clone(),
+                tool_calls: Vec::new(),
+            }),
+            Message::User { content } => {
+                let text = content
+                    .iter()
+                    .filter_map(|c| match c {
+                        UserContent::Text(t) => Some(t.text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                // 纯工具结果消息：配对后不再作为独立气泡输出
+                if text.trim().is_empty() {
+                    continue;
+                }
+                out.push(MessageView {
+                    role: "user".into(),
+                    text,
+                    tool_calls: Vec::new(),
+                });
+            }
+            Message::Assistant(a) => {
+                let text = a
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        AssistantContent::Text(t) => Some(t.text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let tool_calls: Vec<ToolCallView> = a
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        AssistantContent::ToolCall(tc) => Some(ToolCallView {
+                            name: tc.function.name.as_str().to_string(),
+                            args: serde_json::Value::Object(tc.function.arguments.clone())
+                                .to_string(),
+                            result: results
+                                .get(&tc.id.to_string())
+                                .map(|(t, _)| t.clone()),
+                            is_error: results
+                                .get(&tc.id.to_string())
+                                .map(|(_, e)| *e)
+                                .unwrap_or(false),
+                        }),
+                        _ => None,
+                    })
+                    .collect();
+                // 空助手消息（既无文本又无工具）不输出
+                if text.trim().is_empty() && tool_calls.is_empty() {
+                    continue;
+                }
+                out.push(MessageView {
+                    role: "assistant".into(),
+                    text,
+                    tool_calls,
+                });
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -235,6 +316,53 @@ mod tests {
             usage: None,
             last_usage: None,
         }
+    }
+
+    #[test]
+    fn message_views_pairs_tool_calls_and_skips_tool_messages() {
+        use rig::completion::message::{
+            AssistantContent, AssistantMessage, CallId, Text, ToolCall, ToolFunction,
+            ToolName, ToolResult, ToolResultContent, UserContent,
+        };
+
+        let call = ToolCall::new(
+            CallId::from_wire("call_1"),
+            ToolFunction::new(
+                ToolName::new("read_file").unwrap(),
+                serde_json::json!({"path": "outline/总纲.md"}),
+            ),
+        );
+        let assistant = Message::Assistant(AssistantMessage::new(vec![
+            AssistantContent::ToolCall(call),
+            AssistantContent::Text(Text::new("我先读取总纲。")),
+        ]));
+        let tool_msg = Message::User {
+            content: vec![UserContent::ToolResult(ToolResult {
+                call: CallId::from_wire("call_1"),
+                name: ToolName::new("read_file").unwrap(),
+                content: vec![ToolResultContent::Text(Text::new("总纲内容"))],
+                is_error: false,
+            })],
+        };
+        let user = Message::User {
+            content: vec![UserContent::Text(Text::new("你好"))],
+        };
+
+        let views = message_views(&[assistant, tool_msg, user]);
+        assert_eq!(views.len(), 2, "纯工具结果消息不输出为独立气泡");
+        assert_eq!(views[0].role, "assistant");
+        assert_eq!(views[0].text, "我先读取总纲。");
+        assert_eq!(views[0].tool_calls.len(), 1);
+        assert_eq!(views[0].tool_calls[0].name, "read_file");
+        assert!(views[0].tool_calls[0].args.contains("总纲.md"));
+        assert_eq!(
+            views[0].tool_calls[0].result.as_deref(),
+            Some("总纲内容"),
+            "结果按 call_id 配对"
+        );
+        assert!(!views[0].tool_calls[0].is_error);
+        assert_eq!(views[1].role, "user");
+        assert!(views[1].tool_calls.is_empty());
     }
 
     #[test]

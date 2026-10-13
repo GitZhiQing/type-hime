@@ -437,12 +437,7 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
         "load_session_view" => ok!(session_store_work(&s("workPath")).and_then(|st| {
             type_hime_lib::agent::session::load_session(&st, &s("sessionId"))
         })
-        .map(|sess| {
-            sess.messages
-                .iter()
-                .map(type_hime_lib::agent::session::message_view)
-                .collect::<Vec<_>>()
-        })),
+        .map(|sess| type_hime_lib::agent::session::message_views(&sess.messages))),
         "list_sessions_global" => ok!(type_hime_lib::agent::session::list_sessions(
             &type_hime_lib::agent::session::SessionStore::Global
         )),
@@ -460,12 +455,7 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
                 &type_hime_lib::agent::session::SessionStore::Global,
                 &s("sessionId")
             )
-            .map(|sess| {
-                sess.messages
-                    .iter()
-                    .map(type_hime_lib::agent::session::message_view)
-                    .collect::<Vec<_>>()
-            })
+            .map(|sess| type_hime_lib::agent::session::message_views(&sess.messages))
         ),
         "chat_stream_global" => stream_sse(|sink, _prop| {
             let session_id = s("sessionId");

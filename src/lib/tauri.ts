@@ -189,6 +189,15 @@ export interface SkillMeta {
 export interface MessageView {
   role: string;
   text: string;
+  /** 本消息发起的工具调用（已配对结果；纯工具结果消息后端已跳过） */
+  tool_calls: ToolCallView[];
+}
+
+export interface ToolCallView {
+  name: string;
+  args: string;
+  result: string | null;
+  is_error: boolean;
 }
 
 export type Stage =

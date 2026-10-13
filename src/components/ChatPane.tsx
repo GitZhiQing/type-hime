@@ -10,7 +10,7 @@ import {
 } from "@/lib/tauri";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput } from "@/components/ai/tool";
+import { ToolCallCard, type ToolCallData } from "@/components/ai/tool";
 import {
   Conversation,
   ConversationContent,
@@ -47,11 +47,8 @@ interface ChatProps {
   planSlot?: ReactNode;
 }
 
-/** 一次流式运行中的工具调用（按名称配对 call/result） */
-interface ToolCallState {
-  name: string;
-  args: string;
-  result: string | null;
+/** 一次流式运行中的工具调用（按名称配对 call/result；结构同历史会话的 ToolCallData） */
+interface ToolCallState extends ToolCallData {
   state: "running" | "done";
 }
 
@@ -245,7 +242,7 @@ export function ChatPane({
       }
       setInput("");
       setBusy(true);
-      setMessages((m) => [...m, { role: "user", text: raw }]);
+      setMessages((m) => [...m, { role: "user", text: raw, tool_calls: [] }]);
       setStreaming({ text: "", toolCalls: [] });
       const channel = makeChannel<AgentEvent>();
       let acc = "";
@@ -257,17 +254,23 @@ export function ChatPane({
         const summary = await runSlash(parsed, workPath!, channel);
         if (summary !== null) {
           setStreaming(null);
-          setMessages((m) => [...m, { role: "assistant", text: summary }]);
+          setMessages((m) => [...m, { role: "assistant", text: summary, tool_calls: [] }]);
         } else {
-          // 流式 flow：把累积文本与工具轨迹固化为一条助手消息
+          // 流式 flow：把累积文本与工具调用固化为一条助手消息（工具调用结构化进卡片）
           setStreaming((s) => {
             if (s) {
-              const toolNote = s.toolCalls
-                .map((t) => `[调用工具 ${t.name}]`)
-                .join(" ");
               setMessages((m) => [
                 ...m,
-                { role: "assistant", text: `${toolNote}\n${s.text}`.trim() },
+                {
+                  role: "assistant",
+                  text: s.text,
+                  tool_calls: s.toolCalls.map((t) => ({
+                    name: t.name,
+                    args: t.args,
+                    result: t.result,
+                    is_error: false,
+                  })),
+                },
               ]);
             }
             return null;
@@ -288,7 +291,7 @@ export function ChatPane({
     const sid = sessionId ?? onNewSession();
     setInput("");
     setBusy(true);
-    setMessages((m) => [...m, { role: "user", text: raw }]);
+    setMessages((m) => [...m, { role: "user", text: raw, tool_calls: [] }]);
     setStreaming({ text: "", toolCalls: [] });
 
     const prompt = await expandReferences(raw);
@@ -354,29 +357,35 @@ export function ChatPane({
       <Conversation>
         <ConversationContent>
           {messages.map((m, i) => (
-            <Message key={i} from={m.role === "user" ? "user" : "assistant"}>
-              <MessageContent>
-                {m.role === "user" ? (
-                  <MessageText text={m.text} />
-                ) : (
-                  <MessageResponse>{m.text}</MessageResponse>
-                )}
-              </MessageContent>
-            </Message>
+            <div key={i} className="flex flex-col gap-1.5">
+              {m.tool_calls?.map((tc, j) => (
+                <ToolCallCard
+                  key={j}
+                  call={{
+                    name: tc.name,
+                    args: tc.args,
+                    result: tc.result,
+                    isError: tc.is_error,
+                  }}
+                />
+              ))}
+              {m.text.trim() !== "" && (
+                <Message from={m.role === "user" ? "user" : "assistant"}>
+                  <MessageContent>
+                    {m.role === "user" ? (
+                      <MessageText text={m.text} />
+                    ) : (
+                      <MessageResponse>{m.text}</MessageResponse>
+                    )}
+                  </MessageContent>
+                </Message>
+              )}
+            </div>
           ))}
           {streaming && (
             <>
               {streaming.toolCalls.map((t, i) => (
-                <Tool key={i} defaultOpen={t.state === "running"}>
-                  <ToolHeader
-                    title={t.name}
-                    state={t.state === "running" ? "input-available" : "output-available"}
-                  />
-                  <ToolContent>
-                    <ToolInput input={safeParse(t.args)} />
-                    <ToolOutput output={t.result ? safeParse(t.result) : null} />
-                  </ToolContent>
-                </Tool>
+                <ToolCallCard key={i} call={t} />
               ))}
               <Message from="assistant">
                 <MessageContent pulsing>
@@ -467,13 +476,4 @@ export function ChatPane({
       </div>
     </div>
   );
-}
-
-/** 工具参数/结果的宽容解析：JSON 解析失败原样返回字符串 */
-function safeParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
 }
