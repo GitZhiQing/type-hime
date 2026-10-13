@@ -9,7 +9,7 @@ use rig::schemars::JsonSchema;
 use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 
-use super::events::EventSink;
+use super::events::{AgentEvent, EventSink};
 use crate::agent::approval::{self, ApprovalBroker, Decision};
 use crate::review::{Proposal, ReviewQueue};
 
@@ -62,7 +62,28 @@ pub fn validate_content(content: &str, expect: &WriteExpect) -> Result<(), Strin
     Ok(())
 }
 
-/// 工具构建上下文（提议队列共享 + 完成回调 + 写入期望 + 审批/事件通道）。
+/// run_flow 的执行请求（工具 → 业务 flow 的端口类型；业务实现在 flows.rs）。
+#[derive(Debug, Clone)]
+pub struct FlowRequest {
+    pub kind: String,
+    pub volume: Option<u32>,
+    pub chapter: Option<String>,
+}
+
+/// flow 执行器：由业务层注入（chat_flow 提供），返回执行摘要。
+/// 出处（REFACTOR A/R4）：run_flow 必须触发既有 flows 而非让 Agent 手工模拟，
+/// 保住 issues.json 落盘、preflight 注入、装配注入等副作用闭环。
+pub type FlowRunner = Arc<
+    dyn Fn(
+            FlowRequest,
+            EventSink,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<String, String>> + Send>,
+        > + Send
+        + Sync,
+>;
+
+/// 工具构建上下文（提议队列共享 + 完成回调 + 写入期望 + 审批/事件/流程通道）。
 #[derive(Clone)]
 pub struct ToolCtx {
     pub work_root: PathBuf,
@@ -76,10 +97,12 @@ pub struct ToolCtx {
     pub approval: Option<Arc<ApprovalBroker>>,
     /// 事件出口（审批请求/子任务事件回流前端；None=非流式上下文）
     pub event_sink: Option<EventSink>,
+    /// flow 执行器（R4：run_flow 工具；None=该上下文不支持流程编排）
+    pub flow_runner: Option<FlowRunner>,
 }
 
 impl ToolCtx {
-    /// 基础上下文（对话/审校等自由场景）：无写入校验、无审批、无事件出口。
+    /// 基础上下文（对话/审校等自由场景）：无写入校验、无审批、无事件出口、无流程编排。
     pub fn new(
         work_root: PathBuf,
         queue: Arc<Mutex<ReviewQueue>>,
@@ -92,6 +115,7 @@ impl ToolCtx {
             expect: None,
             approval: None,
             event_sink: None,
+            flow_runner: None,
         }
     }
 
@@ -110,6 +134,12 @@ impl ToolCtx {
     /// 设置事件出口。
     pub fn event_sink(mut self, sink: Option<EventSink>) -> Self {
         self.event_sink = sink;
+        self
+    }
+
+    /// 设置 flow 执行器。
+    pub fn flow_runner(mut self, runner: Option<FlowRunner>) -> Self {
+        self.flow_runner = runner;
         self
     }
 }
@@ -386,6 +416,110 @@ impl Tool for Bash {
 }
 
 // ---------------------------------------------------------------------------
+// RunFlow：触发既有流水线流程（章纲/正文/回写/审校…；子任务事件回流）
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RunFlowArgs {
+    /// 流程类型：chapter_outline（章纲）/ chapter（正文）/ ledger_update（账本回写）/ consistency（一致性检查）/ deai（去 AI 味）/ recheck（复检）/ review_volume（卷级批审）/ ledger_tidy（账本整理）
+    pub kind: String,
+    /// 卷号（章级流程必填；审卷为该卷号）
+    pub volume: Option<u32>,
+    /// 章号（如 ch-003；章级流程必填）
+    pub chapter: Option<String>,
+}
+
+/// 流程类型的中文标签（子任务卡标题用）。
+fn describe_flow(kind: &str, volume: Option<u32>, chapter: Option<&str>) -> String {
+    let name = match kind {
+        "chapter_outline" => "生成章纲",
+        "chapter" => "生成正文",
+        "ledger_update" => "账本回写",
+        "consistency" => "一致性检查",
+        "deai" => "去 AI 味",
+        "recheck" => "复检",
+        "review_volume" => "卷级批审",
+        "ledger_tidy" => "账本整理",
+        other => other,
+    };
+    let at = match (volume, chapter) {
+        (Some(v), Some(c)) if !c.is_empty() => format!("第{v}卷 {c}"),
+        (Some(v), _) => format!("第{v}卷"),
+        _ => String::new(),
+    };
+    if at.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} · {at}")
+    }
+}
+
+#[derive(Clone)]
+pub struct RunFlow {
+    ctx: ToolCtx,
+}
+
+impl Tool for RunFlow {
+    const NAME: &'static str = "run_flow";
+    type Error = std::convert::Infallible;
+    type Args = RunFlowArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        let (Some(sink), Some(runner)) = (self.ctx.event_sink.as_ref(), self.ctx.flow_runner.as_ref())
+        else {
+            return Ok("[流程不可用] 当前上下文没有流程执行通道（仅作品会话内的创作助手支持 run_flow）。"
+                .to_string());
+        };
+        let label = describe_flow(&args.kind, args.volume, args.chapter.as_deref());
+        let id = super::subtask::next_id();
+        sink(AgentEvent::SubTaskStart {
+            id: id.clone(),
+            label: label.clone(),
+        });
+        let child = super::subtask::wrap_sink(sink, &id);
+        let result = runner(
+            FlowRequest {
+                kind: args.kind.clone(),
+                volume: args.volume,
+                chapter: args.chapter.clone(),
+            },
+            child,
+        )
+        .await;
+        let (status, summary) = match result {
+            Ok(summary) => ("done", summary),
+            Err(e) => ("error", e),
+        };
+        sink(AgentEvent::SubTaskEnd {
+            id: id.clone(),
+            status: status.to_string(),
+            summary: summary.clone(),
+        });
+        Ok(match status {
+            "done" => format!("[子任务完成] {label}：{summary}"),
+            _ => format!("[子任务失败] {label}：{summary}"),
+        })
+    }
+
+    fn description(&self) -> String {
+        "触发写作流水线流程（与界面按钮同源，副作用闭环保持：装配注入/零 token 预检/问题清单落盘/提议入审阅队列）。\
+         kind 取值：chapter_outline（章纲）/ chapter（正文）/ ledger_update（账本回写）/ consistency（一致性检查）/ \
+         deai（去 AI 味）/ recheck（复检）/ review_volume（卷级批审）/ ledger_tidy（账本整理）。\
+         章级流程需给 volume 与 chapter（如 ch-003）；触发前校验阶段门。\
+         不要用 read_file/propose_* 手工模拟这些流程。"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(RunFlowArgs).to_value()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 注册表
 
 /// 把具体 Tool 包装为 DynamicTool（工具注册面收敛：按 spec.tools 名单动态构建，
@@ -428,6 +562,7 @@ pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
             "propose_edit" => out.push(erase(ProposeEdit { ctx: ctx.clone() })),
             "propose_write" => out.push(erase(ProposeWrite { ctx: ctx.clone() })),
             "bash" => out.push(erase(Bash { ctx: ctx.clone() })),
+            "run_flow" => out.push(erase(RunFlow { ctx: ctx.clone() })),
             other => eprintln!("[agent] 未知工具名：{other}"),
         }
     }

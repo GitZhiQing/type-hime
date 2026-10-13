@@ -34,4 +34,26 @@ pub enum AgentEvent {
         allowed: bool,
         note: Option<String>,
     },
+    /// 子任务开始（R4：run_flow 触发长流程；前端渲染 Task 卡）
+    SubTaskStart { id: String, label: String },
+    /// 子任务文本增量（子流程的 TextDelta 转发）
+    SubTaskDelta { id: String, text: String },
+    /// 子任务内的工具调用（轨迹）
+    SubTaskToolCall {
+        id: String,
+        name: String,
+        args: String,
+    },
+    /// 子任务内的工具结果
+    SubTaskToolResult {
+        id: String,
+        name: String,
+        output: String,
+    },
+    /// 子任务结束（status: done | error；summary 为执行摘要）
+    SubTaskEnd {
+        id: String,
+        status: String,
+        summary: String,
+    },
 }

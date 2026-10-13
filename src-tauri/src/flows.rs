@@ -8,7 +8,7 @@ use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session, SessionStore};
 use agent::spec::{chat_spec, global_chat_spec, ledger_spec, ledger_tidy_spec, reviewer_spec, writer_spec, AgentSpec};
-use agent::tools::ToolCtx;
+use agent::tools::{FlowRequest, FlowRunner, ToolCtx};
 use pipeline::Stage;
 use review::{Proposal, ReviewQueue};
 
@@ -135,9 +135,11 @@ pub async fn chat_flow(
         format!("{}\n\n{}", blocks.join("\n"), prompt)
     };
     let spec = chat_spec();
+    let runner = chat_flow_runner(Arc::clone(queue), work_path.clone(), Arc::clone(&on_proposal));
     let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
         .approval(approval)
-        .event_sink(Some(Arc::clone(&on_event)));
+        .event_sink(Some(Arc::clone(&on_event)))
+        .flow_runner(Some(runner));
     let store = SessionStore::Work(work_dir);
     run_and_save_session(session_id.clone(), &store, Some(&tool_ctx), &spec, &prompt, &on_event)
         .await?;
@@ -156,6 +158,141 @@ pub async fn chat_flow_global(
     run_and_save_session(session_id.clone(), &store, None, &spec, &prompt, &on_event).await?;
     autotitle(&store, &session_id).await;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// run_flow 执行器（R4 Spike B）：chat 会话内的流程编排端口实现
+// 语义（REFACTOR R4）：必须触发既有 flows（保副作用闭环），触发前补 pipeline::gate_check。
+
+/// chat 上下文里的 run_flow 执行器：kind → 既有 flows。
+pub fn chat_flow_runner(
+    queue: Arc<Mutex<ReviewQueue>>,
+    work_path: String,
+    on_proposal: ProposalSink,
+) -> FlowRunner {
+    Arc::new(move |req: FlowRequest, sink: EventSink| {
+        let queue = Arc::clone(&queue);
+        let work_path = work_path.clone();
+        let prop = Arc::clone(&on_proposal);
+        Box::pin(async move { run_flow_request(&queue, &work_path, &req, sink, prop).await })
+    })
+}
+
+/// kind → Stage 的阶段门映射（ledger_tidy 为维护操作，不设门）。
+fn flow_gate_stage(kind: &str) -> Option<Stage> {
+    match kind {
+        "chapter_outline" => Some(Stage::ChapterOutline),
+        "chapter" | "ledger_update" => Some(Stage::Chapters),
+        "consistency" | "deai" | "recheck" | "review_volume" => Some(Stage::Review),
+        _ => None,
+    }
+}
+
+const FLOW_KINDS: &[&str] = &[
+    "chapter_outline",
+    "chapter",
+    "ledger_update",
+    "consistency",
+    "deai",
+    "recheck",
+    "review_volume",
+    "ledger_tidy",
+];
+
+async fn run_flow_request(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_path: &str,
+    req: &FlowRequest,
+    sink: EventSink,
+    prop: ProposalSink,
+) -> Result<String, String> {
+    let work_dir = PathBuf::from(work_path);
+    if !FLOW_KINDS.contains(&req.kind.as_str()) {
+        return Err(format!(
+            "未知流程类型 `{}`；可用：{}",
+            req.kind,
+            FLOW_KINDS.join(" / ")
+        ));
+    }
+    let volume = req.volume.unwrap_or(1);
+    let chapter = req.chapter.clone().unwrap_or_default();
+    let need_chapter = matches!(
+        req.kind.as_str(),
+        "chapter_outline" | "chapter" | "ledger_update" | "consistency" | "deai" | "recheck"
+    );
+    if need_chapter && chapter.trim().is_empty() {
+        return Err(format!("{} 需要章号参数（如 ch-003）", req.kind));
+    }
+    // 阶段门（现状 flows 不查门，门原先只拦 UI 导航；R4 起 run_flow 触发前补查）
+    if let Some(stage) = flow_gate_stage(&req.kind) {
+        let p = pipeline::load_pipeline(&work_dir)?;
+        p.gate_check(stage, &work_dir)
+            .map_err(|e| format!("{e}。可请作者在 PLAN 条确认/推进阶段后重试"))?;
+    }
+
+    match req.kind.as_str() {
+        "chapter_outline" => {
+            generate_artifact_flow(
+                queue,
+                work_path.to_string(),
+                volume,
+                chapter.clone(),
+                "chapter_outline".to_string(),
+                sink,
+                prop,
+            )
+            .await?;
+            Ok(format!("章纲已生成，提议已入审阅队列（{chapter}）"))
+        }
+        "chapter" => {
+            generate_artifact_flow(
+                queue,
+                work_path.to_string(),
+                volume,
+                chapter.clone(),
+                "chapter".to_string(),
+                sink,
+                prop,
+            )
+            .await?;
+            Ok(format!("正文已生成，提议已入审阅队列（{chapter}）"))
+        }
+        "ledger_update" => {
+            ledger_update_flow(queue, work_path.to_string(), volume, chapter.clone(), sink, prop)
+                .await?;
+            Ok("账本回写提议已提交（待审阅）".to_string())
+        }
+        "consistency" => {
+            review_flow(queue, &work_dir, volume, &chapter, "consistency", &sink, prop).await?;
+            let n = issues::list(&work_dir, Some(&chapter))
+                .map(|l| l.len())
+                .unwrap_or(0);
+            Ok(format!(
+                "一致性检查完成：{chapter} 问题清单现有 {n} 条；报告与清单已落盘（可用 list_issues 查看）"
+            ))
+        }
+        "deai" => {
+            review_flow(queue, &work_dir, volume, &chapter, "deai", &sink, prop).await?;
+            Ok(format!("去 AI 味改写完成（{chapter}）；如有修改已提交提议"))
+        }
+        "recheck" => {
+            recheck_flow(queue, work_path.to_string(), volume, chapter.clone(), sink, prop)
+                .await?;
+            let n = issues::list(&work_dir, Some(&chapter))
+                .map(|l| l.len())
+                .unwrap_or(0);
+            Ok(format!("复检完成：{chapter} 问题清单共 {n} 条，复检结论已并入"))
+        }
+        "review_volume" => {
+            review_volume_flow(queue, work_path.to_string(), volume, sink, prop).await?;
+            Ok(format!("第 {volume} 卷批审完成，问题清单已更新"))
+        }
+        "ledger_tidy" => {
+            tidy_flow(queue, work_path.to_string(), sink, prop).await?;
+            Ok("账本整理完成，提议已入审阅队列".to_string())
+        }
+        _ => unreachable!("kind 已在 FLOW_KINDS 校验"),
+    }
 }
 
 /// 生成章纲或正文。target: "chapter_outline" | "chapter"

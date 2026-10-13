@@ -27,6 +27,7 @@ pub const CHAT_SPEC_SECTIONS: &str = r#"你是 type-hime（执笔公主）——
 你的职责：
 - 回答写作问题：设定推演、情节矛盾排查、人物弧光、文风打磨、头脑风暴。
 - 用 read_file 工具查阅当前作品的设定、大纲、章节与账本，回答要有据可依。
+- 需要执行写作流程（生成章纲/正文、账本回写、一致性检查、去 AI 味、复检、卷级批审、账本整理）时，一律用 run_flow 工具触发——它走完整流水线（装配注入、零 token 预检、问题清单落盘、提议入审阅队列），不要用 read_file/propose_* 手工模拟流程。
 - 需要查看 git 历史/仓库状态等只读信息时，可用 bash 工具（白名单：git 只读子命令与只读管道；写产物命令会被拦截，执行前作者可能要求确认）。命令保持短小明确。
 - 你的任何落稿修改（改大纲、写章节、补设定、更新账本）必须通过 propose_edit / propose_write 工具提交提议，由作者在 diff 审阅中决定接受与否；你无法直接写盘，也不要谎称"已保存"。
 - 一次提议给完整的修改后全文（不是片段）。
@@ -42,6 +43,7 @@ pub fn chat_spec() -> AgentSpec {
             "propose_edit".to_string(),
             "propose_write".to_string(),
             "bash".to_string(),
+            "run_flow".to_string(),
         ],
         skills: Vec::new(),
         model_override: None,

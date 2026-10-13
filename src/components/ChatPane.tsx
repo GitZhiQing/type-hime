@@ -32,6 +32,7 @@ import {
 } from "@/components/ai/prompt-autocomplete";
 import { ProposalCard, type InlineProposal } from "@/components/ai/proposal-card";
 import { ConfirmationCard, type ApprovalView } from "@/components/ai/confirmation";
+import { TaskCard, type TaskView } from "@/components/ai/task";
 import { SLASH_DEFS, parseSlash, runSlash } from "@/lib/slash";
 
 interface ChatProps {
@@ -91,6 +92,8 @@ export function ChatPane({
   const [inlineProposals, setInlineProposals] = useState<InlineProposal[]>([]);
   /** 本轮的工具审批卡（R4：审批事件驱动的状态机；决策由审批事件回传） */
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
+  /** 本轮的子任务卡（R4：run_flow 长流程的过程展示） */
+  const [subtasks, setSubtasks] = useState<TaskView[]>([]);
   const busyRef = useRef(false);
 
   const isWork = scope === "work" && !!workPath;
@@ -235,6 +238,7 @@ export function ChatPane({
     setMenu(null);
     setInlineProposals([]);
     setApprovals([]);
+    setSubtasks([]);
     busyRef.current = true;
 
     // slash 命令（过渡实现：前端直达命令，R4 切换为 Agent 指令）
@@ -346,6 +350,49 @@ export function ChatPane({
             : a,
         ),
       );
+    } else if (ev.type === "sub_task_start") {
+      setSubtasks((list) => [
+        ...list,
+        { id: ev.id, label: ev.label, status: "running", text: "", toolCalls: [], summary: null },
+      ]);
+    } else if (ev.type === "sub_task_delta") {
+      setSubtasks((list) =>
+        list.map((t) => (t.id === ev.id ? { ...t, text: t.text + ev.text } : t)),
+      );
+    } else if (ev.type === "sub_task_tool_call") {
+      setSubtasks((list) =>
+        list.map((t) =>
+          t.id === ev.id
+            ? { ...t, toolCalls: [...t.toolCalls, { name: ev.name, args: ev.args, result: null }] }
+            : t,
+        ),
+      );
+    } else if (ev.type === "sub_task_tool_result") {
+      setSubtasks((list) =>
+        list.map((t) => {
+          if (t.id !== ev.id) return t;
+          const calls = [...t.toolCalls];
+          for (let i = calls.length - 1; i >= 0; i--) {
+            if (calls[i].name === ev.name && calls[i].result === null) {
+              calls[i] = { ...calls[i], result: ev.output };
+              break;
+            }
+          }
+          return { ...t, toolCalls: calls };
+        }),
+      );
+    } else if (ev.type === "sub_task_end") {
+      setSubtasks((list) =>
+        list.map((t) =>
+          t.id === ev.id
+            ? {
+                ...t,
+                status: ev.status === "done" ? "done" : "error",
+                summary: ev.summary,
+              }
+            : t,
+        ),
+      );
     }
     setStreaming((s) => {
       if (!s) return s;
@@ -428,6 +475,13 @@ export function ChatPane({
                 </MessageContent>
               </Message>
             </>
+          )}
+          {subtasks.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {subtasks.map((t) => (
+                <TaskCard key={t.id} task={t} />
+              ))}
+            </div>
           )}
           {approvals.length > 0 && (
             <div className="flex flex-col gap-2">

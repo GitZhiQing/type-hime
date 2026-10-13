@@ -171,7 +171,12 @@ export type AgentEvent =
   | { type: "final"; output: string }
   | { type: "error"; message: string }
   | { type: "approval_request"; id: number; tool: string; title: string; detail: string }
-  | { type: "approval_resolved"; id: number; allowed: boolean; note: string | null };
+  | { type: "approval_resolved"; id: number; allowed: boolean; note: string | null }
+  | { type: "sub_task_start"; id: string; label: string }
+  | { type: "sub_task_delta"; id: string; text: string }
+  | { type: "sub_task_tool_call"; id: string; name: string; args: string }
+  | { type: "sub_task_tool_result"; id: string; name: string; output: string }
+  | { type: "sub_task_end"; id: string; status: string; summary: string };
 
 /** 工具审批请求（R4：确认档 bash 等逐条确认；Confirmation 卡数据源） */
 export interface ApprovalRequestView {

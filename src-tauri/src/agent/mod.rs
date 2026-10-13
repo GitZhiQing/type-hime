@@ -8,4 +8,5 @@ pub mod kernel;
 pub mod session;
 pub mod skills;
 pub mod spec;
+pub mod subtask;
 pub mod tools;
