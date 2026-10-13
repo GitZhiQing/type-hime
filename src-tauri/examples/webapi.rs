@@ -257,6 +257,9 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
         }
         "get_ledger" => ok!(ledger::read_ledger(&PathBuf::from(s("workPath")))),
         "check_visibility_leak" => ok!(lore::check_visibility_leak(&PathBuf::from(s("workPath")))),
+        "list_skills" => ok!(agent::skills::list_skill_meta(
+            opt_str("workPath").map(PathBuf::from).as_deref()
+        )),
         "preview_assembly" => {
             let mut opts = assembly::AssemblyOptions::default();
             opts.volume = n("volume");
@@ -350,7 +353,7 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
             ok!(q_arc
                 .lock()
                 .unwrap()
-                .take(id)
+                .reject_with_comment(id, opt_str("comment"))
                 .map(|_| ())
                 .ok_or(format!("提议 #{id} 不存在")))
         }

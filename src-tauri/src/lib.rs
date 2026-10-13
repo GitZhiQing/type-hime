@@ -551,12 +551,16 @@ fn apply_proposal(queue: State<'_, SharedQueue>, work_path: String, id: u64) -> 
 }
 
 #[tauri::command]
-fn reject_proposal(queue: State<'_, SharedQueue>, id: u64) -> Result<(), String> {
+fn reject_proposal(
+    queue: State<'_, SharedQueue>,
+    id: u64,
+    comment: Option<String>,
+) -> Result<(), String> {
     queue
         .0
         .lock()
         .unwrap()
-        .take(id)
+        .reject_with_comment(id, comment)
         .ok_or(format!("提议 #{id} 不存在（可能已被处理）"))?;
     Ok(())
 }

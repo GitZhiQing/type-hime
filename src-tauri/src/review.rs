@@ -53,6 +53,18 @@ fn restore() -> ReviewQueue {
 pub struct ReviewQueue {
     counter: u64,
     queue: Vec<Proposal>,
+    /// 拒绝反馈（带评论的拒绝）：chat_stream 时注入对应作品的会话上下文，驱动 Agent 修改重提
+    #[serde(default)]
+    feedback: Vec<RejectionFeedback>,
+}
+
+/// 拒绝反馈记录（R2-③：拒绝带评论，评论回流 Agent 上下文）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RejectionFeedback {
+    pub work_path: String,
+    pub rel_path: String,
+    pub comment: String,
+    pub created_at: String,
 }
 
 impl ReviewQueue {
@@ -92,6 +104,41 @@ impl ReviewQueue {
         let p = self.queue.remove(idx);
         persist(self);
         Some(p)
+    }
+
+    /// 拒绝提议；带非空评论时记录反馈（等待下次 chat_stream 注入）。
+    pub fn reject_with_comment(
+        &mut self,
+        id: u64,
+        comment: Option<String>,
+    ) -> Option<Proposal> {
+        let p = self.take(id)?;
+        if let Some(c) = comment.filter(|c| !c.trim().is_empty()) {
+            self.feedback.push(RejectionFeedback {
+                work_path: p.work_path.clone(),
+                rel_path: p.rel_path.clone(),
+                comment: c.trim().to_string(),
+                created_at: crate::works::now_iso(),
+            });
+            persist(self);
+        }
+        Some(p)
+    }
+
+    /// 取走该作品的未消费拒绝反馈（其他作品的保留）。
+    pub fn take_feedback(&mut self, work_path: &str) -> Vec<RejectionFeedback> {
+        if self.feedback.is_empty() {
+            return Vec::new();
+        }
+        let (hit, rest): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.feedback)
+                .into_iter()
+                .partition(|f| f.work_path == work_path);
+        self.feedback = rest;
+        if !hit.is_empty() {
+            persist(self);
+        }
+        hit
     }
 }
 
@@ -150,6 +197,51 @@ mod tests {
         // 无差异
         let same = unified_diff("a\n", "a\n", "x.md");
         assert!(same.contains("（无差异）"));
+    }
+
+    #[test]
+    fn reject_with_comment_feedback_roundtrip() {
+        let mut q = ReviewQueue::default();
+        let p = q.push(
+            "C:/works/a".into(),
+            "outline/总纲.md".into(),
+            "旧\n".into(),
+            "新\n".into(),
+            "理由".into(),
+            false,
+        );
+        // 空评论拒绝：不留反馈
+        q.reject_with_comment(p.id, Some("   ".into())).unwrap();
+        assert!(q.take_feedback("C:/works/a").is_empty());
+
+        // 带评论拒绝：反馈按作品取走，其他作品保留
+        let p2 = q.push(
+            "C:/works/a".into(),
+            "outline/总纲.md".into(),
+            "旧\n".into(),
+            "新2\n".into(),
+            "理由".into(),
+            false,
+        );
+        let p3 = q.push(
+            "C:/works/b".into(),
+            "x.md".into(),
+            "".into(),
+            "y\n".into(),
+            "理由".into(),
+            true,
+        );
+        q.reject_with_comment(p2.id, Some("语气太现代，重写".into())).unwrap();
+        q.reject_with_comment(p3.id, Some("另一作品的反馈".into())).unwrap();
+
+        let fb = q.take_feedback("C:/works/a");
+        assert_eq!(fb.len(), 1);
+        assert_eq!(fb[0].comment, "语气太现代，重写");
+        assert_eq!(fb[0].rel_path, "outline/总纲.md");
+        // 二次取走为空（已消费），另一作品的仍在
+        assert!(q.take_feedback("C:/works/a").is_empty());
+        let fb_b = q.take_feedback("C:/works/b");
+        assert_eq!(fb_b.len(), 1);
     }
 
     #[test]

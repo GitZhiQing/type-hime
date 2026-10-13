@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   api,
   makeChannel,
+  listenCompat,
   AgentEvent,
   MessageView,
+  Proposal,
   TreeNode,
 } from "@/lib/tauri";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,6 +24,7 @@ import {
   PromptAutocomplete,
   type AutocompleteItem,
 } from "@/components/ai/prompt-autocomplete";
+import { ProposalCard, type InlineProposal } from "@/components/ai/proposal-card";
 import { SLASH_DEFS, parseSlash, runSlash } from "@/lib/slash";
 
 interface ChatProps {
@@ -78,9 +81,25 @@ export function ChatPane({
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [files, setFiles] = useState<{ name: string; path: string }[]>([]);
+  const [inlineProposals, setInlineProposals] = useState<InlineProposal[]>([]);
+  const busyRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isWork = scope === "work" && !!workPath;
+
+  // 内联提议卡片：仅在聊天发起的一轮中捕获本作品的提议（右栏 GeneratePane 触发的不进聊天流）
+  useEffect(() => {
+    if (!isWork || !workPath) return;
+    const un = listenCompat<Proposal>("review:new", (event) => {
+      const p = event.payload;
+      if (busyRef.current && p.work_path === workPath) {
+        setInlineProposals((list) => [...list, { proposal: p, status: "pending" }]);
+      }
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [isWork, workPath]);
 
   // @ 引用菜单数据：作品文件清单（work 作用域加载一次）
   useEffect(() => {
@@ -210,6 +229,8 @@ export function ChatPane({
     const raw = input.trim();
     if (!raw || busy) return;
     setMenu(null);
+    setInlineProposals([]);
+    busyRef.current = true;
 
     // slash 命令（过渡实现：前端直达命令，R4 切换为 Agent 指令）
     if (isWork && raw.startsWith("/")) {
@@ -254,6 +275,7 @@ export function ChatPane({
         toast.error(String(e));
       } finally {
         setBusy(false);
+        busyRef.current = false;
       }
       return;
     }
@@ -287,6 +309,7 @@ export function ChatPane({
       toast.error(String(e));
     } finally {
       setBusy(false);
+      busyRef.current = false;
     }
   }
 
@@ -348,6 +371,27 @@ export function ChatPane({
                 text={streaming.text || "…"}
                 pulsing
               />
+            </div>
+          )}
+          {inlineProposals.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {inlineProposals.map((item) => (
+                <ProposalCard
+                  key={item.proposal.id}
+                  item={item}
+                  workPath={workPath!}
+                  onResolved={(id, status) =>
+                    setInlineProposals((list) =>
+                      list.map((it) =>
+                        it.proposal.id === id ? { ...it, status } : it,
+                      ),
+                    )
+                  }
+                />
+              ))}
+              <div className="text-center text-[10px] text-muted-foreground">
+                提议已入审阅队列；此处或右栏「审阅」任一处处理均可
+              </div>
             </div>
           )}
           {messages.length === 0 && !streaming && (

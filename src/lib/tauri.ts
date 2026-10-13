@@ -336,7 +336,8 @@ export const api = {
   listProposals: () => call<Proposal[]>("list_proposals"),
   applyProposal: (workPath: string, id: number) =>
     call<string>("apply_proposal", { workPath, id }),
-  rejectProposal: (id: number) => call<void>("reject_proposal", { id }),
+  rejectProposal: (id: number, comment?: string) =>
+    call<void>("reject_proposal", { id, comment: comment ?? null }),
 
   // 装配
   previewAssembly: (

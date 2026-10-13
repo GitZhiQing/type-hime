@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api, listenCompat, Proposal } from "@/lib/tauri";
+import { collapseContext } from "@/lib/diff";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -12,32 +13,6 @@ import { toast } from "sonner";
 interface DiffPaneProps {
   workPath: string;
   onApplied: () => void;
-}
-
-/** 连续 3 行以上的上下文行折叠为省略号（默认只展示变更±3 行的语义不变，视觉更紧凑） */
-function collapseContext(diff: string): string[] {
-  const lines = diff.split("\n");
-  const out: string[] = [];
-  let run: string[] = [];
-  const flush = () => {
-    if (run.length > 4) {
-      out.push(run[0], "⋯", run[run.length - 1]);
-    } else {
-      out.push(...run);
-    }
-    run = [];
-  };
-  for (const line of lines) {
-    const isContext = !line.startsWith("+") && !line.startsWith("-") && !line.startsWith("@@");
-    if (isContext) {
-      run.push(line);
-    } else {
-      flush();
-      out.push(line);
-    }
-  }
-  flush();
-  return out;
 }
 
 export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
@@ -75,8 +50,12 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
       }
       reload();
     });
+    // 聊天内联提议卡片处理后同步本列表（R2-③）
+    const onReviewChanged = () => reload();
+    window.addEventListener("review:changed", onReviewChanged);
     return () => {
       alive = false;
+      window.removeEventListener("review:changed", onReviewChanged);
       un.then((f) => f());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

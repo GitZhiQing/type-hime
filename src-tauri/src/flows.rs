@@ -100,7 +100,7 @@ async fn try_generate_title(first_user: &str) -> Option<String> {
     }
 }
 
-/// 流式对话（旁路会话）：产物经提议审阅回流。
+/// 流式对话（旁路会话）：产物经提议审阅回流。拒绝带评论的反馈注入本轮上下文。
 pub async fn chat_flow(
     queue: &Arc<Mutex<ReviewQueue>>,
     work_path: String,
@@ -110,6 +110,25 @@ pub async fn chat_flow(
     on_proposal: ProposalSink,
 ) -> Result<(), String> {
     let work_dir = PathBuf::from(&work_path);
+    // 取走本作品的拒绝反馈，拼进 prompt 开头（驱动 Agent 按反馈修改重提）
+    let feedback = {
+        let mut q = queue.lock().unwrap();
+        q.take_feedback(&work_path)
+    };
+    let prompt = if feedback.is_empty() {
+        prompt
+    } else {
+        let blocks: Vec<String> = feedback
+            .iter()
+            .map(|f| {
+                format!(
+                    "【作者拒绝了对 {} 的提议】作者反馈：{}。请按反馈调整后重新提交提议。",
+                    f.rel_path, f.comment
+                )
+            })
+            .collect();
+        format!("{}\n\n{}", blocks.join("\n"), prompt)
+    };
     let spec = chat_spec();
     let tool_ctx = ToolCtx {
         work_root: work_dir.clone(),

@@ -135,6 +135,10 @@ export function Workbench() {
       return;
     }
     refresh();
+    // 聊天内联提议卡片接受落盘后同步资源树/git 历史（R2-③）
+    const onReviewChanged = () => refresh();
+    window.addEventListener("review:changed", onReviewChanged);
+    return () => window.removeEventListener("review:changed", onReviewChanged);
   }, [work, refresh, navigate]);
 
   if (!work) return null;
