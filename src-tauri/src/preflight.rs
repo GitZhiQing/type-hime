@@ -6,11 +6,12 @@ use crate::ledger::Ledger;
 /// 中文/阿拉伯数字 → 层级序号（炼气一~九层 → 1~9；筑基 → 10；金丹 → 11）
 fn realm_level(text: &str) -> Option<u32> {
     for (i, cn) in ["一", "二", "三", "四", "五", "六", "七", "八", "九"].iter().enumerate() {
-        if text.contains(&format!("炼气{i}层")) || text.contains(&format!("炼气{i:02}层")) {
-            return Some(i as u32 + 1);
-        }
-        if text.contains(&format!("炼气{cn}层")) {
-            return Some(i as u32 + 1);
+        let n = i as u32 + 1;
+        if text.contains(&format!("炼气{n}层"))
+            || text.contains(&format!("炼气{n:02}层"))
+            || text.contains(&format!("炼气{cn}层"))
+        {
+            return Some(n);
         }
     }
     if text.contains("筑基") {
