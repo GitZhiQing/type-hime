@@ -5,6 +5,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "cn";
 import { AlertTriangle, EyeOff, Loader2, RefreshCw } from "lucide-react";
 
@@ -70,14 +77,20 @@ export function AssemblyPane({ workPath }: AssemblyPaneProps) {
         </label>
         <label className="flex items-center gap-1">
           档位
-          <select
+          <Select
+            items={{ full: "完整", name_only: "仅名称" }}
             value={detail}
-            onChange={(e) => setDetail(e.currentTarget.value as "full" | "name_only")}
-            className="h-7 rounded-md border bg-transparent px-1"
+            onValueChange={(v) => v && setDetail(v as "full" | "name_only")}
           >
-            <option value="full">完整</option>
-            <option value="name_only">仅名称</option>
-          </select>        </label>
+            <SelectTrigger className="h-7 w-22 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="full">完整</SelectItem>
+              <SelectItem value="name_only">仅名称</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
         <label className="flex items-center gap-1">
           预算
           <Input

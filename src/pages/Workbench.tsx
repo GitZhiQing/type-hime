@@ -334,7 +334,11 @@ export function Workbench() {
           <FieldGroup>
             <Field>
               <FieldLabel>类型</FieldLabel>
-              <Select value={loreKind} onValueChange={(v) => v && setLoreKind(v)}>
+              <Select
+                items={{ character: "人物", worldview: "世界观", mystery: "悬念/伏笔" }}
+                value={loreKind}
+                onValueChange={(v) => v && setLoreKind(v)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

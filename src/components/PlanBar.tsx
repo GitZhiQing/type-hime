@@ -10,6 +10,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "cn";
@@ -122,14 +127,30 @@ export function PlanBar({ workPath, pipeline, onChange }: PlanBarProps) {
                   </DropdownMenuItem>
                 </>
               )}
-              {pipeline.gates
-                .filter((g) => g.confirmed)
-                .map((g) => (
-                  <DropdownMenuItem key={`redo-${g.stage}`} onClick={() => act(api.pipelineRedo, g.stage)}>
-                    <RotateCcw data-icon="inline-start" />
-                    重做「{g.label}」（其后确认一并取消）
-                  </DropdownMenuItem>
-                ))}
+              {pipeline.gates.some((g) => g.confirmed) && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <RotateCcw data-icon="inline-start" />
+                      重做阶段…
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuLabel>重做后，其后确认一并取消</DropdownMenuLabel>
+                      {pipeline.gates
+                        .filter((g) => g.confirmed)
+                        .map((g) => (
+                          <DropdownMenuItem
+                            key={`redo-${g.stage}`}
+                            onClick={() => act(api.pipelineRedo, g.stage)}
+                          >
+                            重做「{g.label}」
+                          </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
