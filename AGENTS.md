@@ -24,7 +24,7 @@ cargo run --example webapi                         # Web 测试通道（127.0.0.
 ## 目录速览
 
 ```
-docs/            SPEC.md（范围契约）+ DECISIONS.md（选型账）
+docs/            SPEC.md（范围契约）+ DECISIONS.md（选型账）+ REDESIGN.md（重设计·已确认）+ REFACTOR.md（重构执行 R1-R7）
 src/             前端（React + TS + Tailwind v4 + shadcn/ui，base-ui 基座）
   components/ui/      shadcn 组件（CLI 生成）
   components/*.tsx    资源树/编辑器/会话/生成/审阅/装配/阶段条
@@ -58,3 +58,4 @@ examples/        chat_smoke / full_flow / mvp_flow / write_book / regression
 - cargo check 警告保持 0（cargo fix --lib 可自动清）。
 - 开发纪律：一片一提交（中文提交信息），切片验收通过才进下一片；先 cargo check/test 绿再动前端。
 - 文档纪律：产物按现状书写，演进过程交给提交说明与 DECISIONS.md。
+- 重构进行中（docs/REFACTOR.md，R1→R6）：按切片顺序实施；新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）；R4 验收通过前不得移除 GeneratePane/StageBar。

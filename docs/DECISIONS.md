@@ -23,3 +23,13 @@
 - D16 · 2026-10-14 · 写入轻校验即工具校验器：propose_write/propose_edit 按期望（字数区间+中文语境半角标点）校验，不合规返回错误文本让模型当场自改 · 为什么：质量前置拦截比审校兜底便宜（一次工具往返 vs 一次审校 pass）。
 - D17 · 2026-10-14 · 关联泄漏检查：隐藏条目与可见条目正文 4-gram 重叠 ≥4（≈7字连续复述）报警，提示性非阻断，剥离 frontmatter 防元数据假重叠 · 为什么：可见性是条目级粒度，管不住可见条目内容复述隐藏条目（实测"林晚"条目泄露"黑剑反哺"秘密）。
 - D18 · 2026-10-14 · Web 测试通道：业务层双传输入口——flows.rs 承载全部流式命令体（回调参数化），Tauri 走 IPC/Channel/emit，浏览器走 axum HTTP+SSE（examples/webapi.rs，仅绑 127.0.0.1:18360，vite /api 代理）；前端 tauri.ts 传输分流（invoke↔fetch、Channel↔SSE 解析、listen↔EventSource），上层组件零感知 · 为什么：桌面端无法被 Web 工具自动化测试，此前 UI 验证只有构建层+骨架走查；通道测的是真实后端（真 git/真装配/真模型流式）而非 mock。已用它完成浏览器内全闭环验证（建作品→SSE 生成→工具轨迹→轻校验打回重提→diff 审阅→接受落盘→git 留痕→成本账刷新）。
+
+---（以下为产品重设计确认批次，2026-10-14；设计 docs/REDESIGN.md，执行 docs/REFACTOR.md）---
+
+- D19 · 2026-10-14 · 产品形态重构为 Agent 驱动的写作工作台：聊天为核心 + 制品面板（VS Code 式多标签）+ 输入框上方可折叠 PLAN 条；GeneratePane 8 按钮全部聊天化（slash = 发给 Agent 的结构化指令，非前端直调）；UI 显式入口 50+ 收敛至约 15 · 为什么：后端 flow/提议闭环已就绪而 UI 是按钮堆；「聊天驱动+diff 审阅+slash/skills」形态在写作赛道空白（蛙蛙/笔灵/马良等均为表单+按钮），差异化定位。实施：REFACTOR R1-R6 渐进绞杀，R4 验收通过前不拆旧 UI。
+- D20 · 2026-10-14 · 权限模型三档 × per-tool 覆盖：PermissionMode{Review,Auto,Goal} 会话级，project.json tool_overrides 按工具/命令覆盖档位；四类操作（可见性设置/删除恢复文件/跳过阶段/装配切全量）任何档位不可豁免，硬编码在工具层 · 为什么：goose smart_approve per-tool 覆盖 + Cursor per-tool auto-approval 的社区验证形态；D0-6 红线演化为「默认审阅，自主 = 用户显式授权例外」。
+- D21 · 2026-10-14 · bash 工具：白名单配置化（全局 app data + 作品级两层，example 入库）+ 内置默认（git 只读 status/log/diff/show 等）；写产物模式黑名单（>、>>、sed -i、rm 等）拦截并引导 propose_*；Review 档经会话内 Allow/Deny 卡片逐条审批 · 为什么：aichat 声明式配置惯例 + goose 会话审批形态；bash 是 D6 红线最大绕过面，守卫必须在工具层而非 UI 层。
+- D22 · 2026-10-14 · 上下文三层模型：会话上下文无硬上限（窗口用量指示 + 新会话提醒）/ 装配上下文可查看可增删（上下文面板，档位与过滤为默认策略）/ 工具上下文按需拉取（get_ledger/list_issues 等）。取代 D11 中「降后仍超才拦截」的硬拦语义（出场过滤/账本分层机制保留，超预算仅警告不强制降档）；可见性出口过滤不受影响 · 为什么：百万上下文模型时代，产品职责是让用户看清上下文，不是替用户硬裁剪。
+- D23 · 2026-10-14 · 前端 AI 界面组件采用 Vercel AI Elements 源码复制路线（不引包依赖），R2 先以 Tool + PromptInput 两个组件验证 base-ui 基座兼容（radix asChild → base-ui render 改造），不通过则按其结构自研同构组件 · 为什么：其组件面完整覆盖本项目需求（Tool/Task/Plan/Confirmation/Context/Checkpoint/Artifact/Commit）；但基座是 radix 与本项目 base-ui 不同，必须 spike 定路线。
+- D24 · 2026-10-14 · rig 选型复核维持，不换内核：Rust 生态无完整 harness 可换（本项目 agent/ 即自建 mini-harness，与 PI 同构；换 TS 内核 sidecar 与三条红线冲突——直接写文件/key 出 Rust/Node 分发）；防御三条：inner facade（rig 类型收敛 kernel.rs 内）+ 会话存档 format_version + R4 双 spike（审批挂起/子任务事件）；逃生舱：只用 rig completion 层自写 loop（改动面 kernel.rs）· 为什么：rig 0.43→0.44 破坏性升级已发生过（D3），须对冲演进风险；MCP 生态经官方 rmcp 已由 rig 原生支持（后置 R7）。
+- D25 · 2026-10-14 · 会话管理升为一等：会话列表（自动标题/重命名/删除/搜索，前缀匹配起步）+ 项目会话与全局对话（无项目上下文、无文件工具）分层存储 + 接受提议自动 checkpoint；Tantivy 全文搜索、smart approve、compaction、对抗性检查、技能包分发、MCP 工具生态全部后置（REFACTOR R7 触发条件表）· 为什么：会话是 Coding Agent 产品的基本功（对标 Claude Code/OpenCode/PI durable）；后置项均有验证来源但当前无触发条件。
