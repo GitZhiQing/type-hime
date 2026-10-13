@@ -8,11 +8,16 @@ import {
   Proposal,
   TreeNode,
 } from "@/lib/tauri";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "cn";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput } from "@/components/ai/tool";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "@/components/ai/conversation";
+import { Message, MessageContent, MessageText } from "@/components/ai/message";
 import {
   PromptInput,
   PromptInputBody,
@@ -86,7 +91,6 @@ export function ChatPane({
   const [files, setFiles] = useState<{ name: string; path: string }[]>([]);
   const [inlineProposals, setInlineProposals] = useState<InlineProposal[]>([]);
   const busyRef = useRef(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   const isWork = scope === "work" && !!workPath;
 
@@ -132,10 +136,6 @@ export function ChatPane({
     p.then(setMessages).catch(() => setMessages([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, workPath, sessionId]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streaming?.text, menu]);
 
   /** 输入变化 → 补全菜单触发检测（/ 开头命令、@ 素材引用） */
   function detectMenu(value: string) {
@@ -350,13 +350,17 @@ export function ChatPane({
 
   return (
     <div className="flex h-full flex-col">
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-3 p-3">
+      <Conversation>
+        <ConversationContent>
           {messages.map((m, i) => (
-            <ChatBubble key={i} role={m.role} text={m.text} />
+            <Message key={i} from={m.role === "user" ? "user" : "assistant"}>
+              <MessageContent>
+                <MessageText text={m.text} />
+              </MessageContent>
+            </Message>
           ))}
           {streaming && (
-            <div className="flex flex-col gap-2">
+            <>
               {streaming.toolCalls.map((t, i) => (
                 <Tool key={i} defaultOpen={t.state === "running"}>
                   <ToolHeader
@@ -369,12 +373,12 @@ export function ChatPane({
                   </ToolContent>
                 </Tool>
               ))}
-              <ChatBubble
-                role="assistant"
-                text={streaming.text || "…"}
-                pulsing
-              />
-            </div>
+              <Message from="assistant">
+                <MessageContent pulsing>
+                  <MessageText text={streaming.text || "…"} />
+                </MessageContent>
+              </Message>
+            </>
           )}
           {inlineProposals.length > 0 && (
             <div className="flex flex-col gap-2">
@@ -398,21 +402,27 @@ export function ChatPane({
             </div>
           )}
           {messages.length === 0 && !streaming && (
-            <div className="flex flex-1 items-center justify-center py-16 text-sm text-muted-foreground">
-              {busy ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" /> 连接模型…
-                </>
-              ) : isWork ? (
-                "向写作助手提问：设定推演 / 情节排查 / 头脑风暴"
-              ) : (
-                "找灵感、头脑风暴、写作问答（无作品上下文）"
-              )}
-            </div>
+            <ConversationEmptyState
+              title={
+                busy
+                  ? "连接模型…"
+                  : isWork
+                    ? "向写作助手提问"
+                    : "找灵感、头脑风暴、写作问答（无作品上下文）"
+              }
+              description={
+                busy
+                  ? undefined
+                  : isWork
+                    ? "设定推演 / 情节排查 / 头脑风暴；用 / 调技能、@ 引用素材"
+                    : undefined
+              }
+              icon={busy ? <Loader2 className="size-5 animate-spin" /> : undefined}
+            />
           )}
-          <div ref={bottomRef} />
-        </div>
-      </ScrollArea>
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
 
       {planSlot && <div className="shrink-0 border-t">{planSlot}</div>}
       <div className="shrink-0 border-t p-2">
@@ -461,31 +471,4 @@ function safeParse(raw: string): unknown {
   } catch {
     return raw;
   }
-}
-
-function ChatBubble({
-  role,
-  text,
-  pulsing,
-}: {
-  role: string;
-  text: string;
-  pulsing?: boolean;
-}) {
-  const isUser = role === "user";
-  return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed",
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-foreground",
-          pulsing && "animate-pulse"
-        )}
-      >
-        {text}
-      </div>
-    </div>
-  );
 }

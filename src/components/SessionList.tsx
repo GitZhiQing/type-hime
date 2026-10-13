@@ -3,6 +3,14 @@ import { api, SessionMeta } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "cn";
 import { toast } from "sonner";
 import { MessageSquarePlus, Pencil, Search, Trash2 } from "lucide-react";
@@ -32,6 +40,8 @@ export function SessionList({
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
+  /** 待删除确认的会话 id（shadcn Dialog 替代原生 confirm） */
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const autoSelected = useRef(false);
 
   useEffect(() => {
@@ -75,7 +85,6 @@ export function SessionList({
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm("删除该会话？历史不可恢复。")) return;
     try {
       if (scope === "work" && workPath) {
         await api.deleteSession(workPath, id);
@@ -84,6 +93,7 @@ export function SessionList({
       }
       setList((l) => l.filter((s) => s.id !== id));
       if (sessionId === id) onNew();
+      toast.success("会话已删除");
     } catch (e) {
       toast.error(String(e));
     }
@@ -172,7 +182,7 @@ export function SessionList({
                     size="sm"
                     className="size-6 p-0"
                     aria-label="删除"
-                    onClick={() => handleDelete(s.id)}
+                    onClick={() => setPendingDelete(s.id)}
                   >
                     <Trash2 className="size-3" />
                   </Button>
@@ -185,6 +195,36 @@ export function SessionList({
           )}
         </div>
       </ScrollArea>
+
+      {/* 删除确认（shadcn Dialog；替代原生 confirm） */}
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>删除会话</DialogTitle>
+            <DialogDescription>
+              删除后该会话的历史将不可恢复（作品文件与 git 记录不受影响）。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const id = pendingDelete;
+                setPendingDelete(null);
+                if (id) handleDelete(id);
+              }}
+            >
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
