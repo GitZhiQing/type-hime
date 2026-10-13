@@ -3,6 +3,10 @@ import { Streamdown } from "streamdown";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { cn } from "cn";
+import { installCodeCopyEnhancer } from "@/components/ai/code-copy";
+
+// 代码块复制增强（clipboard 失败回退 + 统一反馈）；幂等，模块加载时安装一次
+installCodeCopyEnhancer();
 
 /**
  * 改编自 Vercel AI Elements 的 MessageResponse（源码复制路线，D26）：
