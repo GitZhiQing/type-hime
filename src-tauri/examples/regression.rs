@@ -13,7 +13,7 @@ use type_hime_lib::assembly::{self, AssemblyOptions};
 use type_hime_lib::pipeline::Stage;
 use type_hime_lib::review::{self, ReviewQueue};
 use type_hime_lib::settings;
-use type_hime_lib::{issues, lore, works};
+use type_hime_lib::{issues, lore, preflight, works};
 
 fn step(n: &str, msg: &str) {
     println!("\n===== [{n}] {msg} =====");
@@ -138,17 +138,41 @@ async fn run() -> Result<(), String> {
         &mut fail,
     );
 
-    // ③ 修为预检：ch-002 埋错
+    // ③ 修为预检（自适应埋错）：优先用账本中真实带层级的角色条目；若本章人物无层级记录
+    //    （模型自创人物的运行），回退合成用例，保证预检代码路径每次被验证（原实现硬编码
+    //    「林晚」角色名，换一批自创人名即假阴性）。
     let ch2 = assembly::chapter_path(1, "ch-002");
     let raw = works::read_file(&dir, &ch2)?;
-    if let Some(pos) = raw.find("林晚") {
-        let _ = pos;
-    }
-    works::write_file(&dir, &ch2, &format!("{raw}\n\n林晚盘膝调息，炼气六层的气感在经脉中流转。\n"))?;
-    let raw2 = works::read_file(&dir, &ch2)?;
     let ledger = type_hime_lib::ledger::read_ledger(&dir)?;
-    let found = type_hime_lib::preflight::preflight_cultivation(&raw2, &ledger);
-    check("③修为预检抓到埋错（炼气六层）", !found.is_empty(), &mut pass, &mut fail);
+    let planted = ledger
+        .characters
+        .iter()
+        .find_map(|e| preflight::realm_level(&e.body).map(|lv| (e.title.clone(), lv)));
+    let (found, from_ledger) = match planted {
+        Some((name, lv)) => {
+            let wrong = preflight::realm_label(if lv >= 11 { lv - 1 } else { lv + 1 });
+            let text = format!("{raw}\n\n{name}盘膝调息，{wrong}的气感在经脉中流转。\n");
+            works::write_file(&dir, &ch2, &text)?;
+            (preflight::preflight_cultivation(&text, &ledger), true)
+        }
+        None => {
+            let mut synthetic = type_hime_lib::ledger::Ledger::default();
+            synthetic.characters.push(type_hime_lib::ledger::LedgerEntry {
+                title: "测试甲".into(),
+                body: "炼气三层".into(),
+                last_touched: None,
+            });
+            let text = "测试甲盘膝调息，炼气六层的气感在经脉中流转。".to_string();
+            (
+                preflight::preflight_cultivation(&text, &synthetic),
+                false,
+            )
+        }
+    };
+    if !from_ledger {
+        println!("  （③ 回退合成用例：本卷人物无修为层级记录）");
+    }
+    check("③修为预检抓到埋错（层级矛盾句）", !found.is_empty(), &mut pass, &mut fail);
 
     // ④ 写入轻校验：字数不足应被工具拒绝（观察生成日志中是否有[校验未过]不好断言，
     //    改为直接调 validate_content 单元逻辑已在单测覆盖；此处验证正文长度在区间）

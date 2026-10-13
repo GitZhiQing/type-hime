@@ -3,8 +3,9 @@
 
 use crate::ledger::Ledger;
 
-/// 中文/阿拉伯数字 → 层级序号（炼气一~九层 → 1~9；筑基 → 10；金丹 → 11）
-fn realm_level(text: &str) -> Option<u32> {
+/// 中文/阿拉伯数字 → 层级序号（炼气一~九层 → 1~9；筑基 → 10；金丹 → 11）。
+/// pub：供 regression 例子按账本实况自适应埋错（避免硬编码角色名导致假阴性）。
+pub fn realm_level(text: &str) -> Option<u32> {
     for (i, cn) in ["一", "二", "三", "四", "五", "六", "七", "八", "九"].iter().enumerate() {
         let n = i as u32 + 1;
         if text.contains(&format!("炼气{n}层"))
@@ -23,7 +24,8 @@ fn realm_level(text: &str) -> Option<u32> {
     None
 }
 
-fn realm_label(level: u32) -> String {
+/// 层级序号 → 展示名（pub：regression 例子构造矛盾句用）。
+pub fn realm_label(level: u32) -> String {
     match level {
         10 => "筑基".into(),
         11 => "金丹".into(),
