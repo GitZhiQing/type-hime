@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, GateInfo, PipelineView } from "@/lib/tauri";
+import { api, PipelineView } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -10,20 +10,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "cn";
-import { Check, ChevronDown, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, Circle, Lock, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 /**
- * PLAN 条（R2-④，替代 StageBar）：聊天输入框上方的可折叠阶段进度条。
- * 折叠=当前阶段+进度点+快捷确认；展开=各阶段详情与进入操作；skip/redo 收进「…」菜单。
+ * PLAN 条（替代 StageBar）：聊天输入框上方的可折叠阶段进度条。
+ * 折叠=当前阶段+进度点+快捷确认；展开=阶段列表（状态图标 + 阶段名 + 状态 + 重做按钮）。
  * 推进由 Agent/产物状态发起建议、人点确认（REDESIGN §5.4）。
  */
 
@@ -127,39 +122,69 @@ export function PlanBar({ workPath, pipeline, onChange }: PlanBarProps) {
                   </DropdownMenuItem>
                 </>
               )}
-              {pipeline.gates.some((g) => g.confirmed) && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <RotateCcw data-icon="inline-start" />
-                      重做阶段…
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuLabel>重做后，其后确认一并取消</DropdownMenuLabel>
-                      {pipeline.gates
-                        .filter((g) => g.confirmed)
-                        .map((g) => (
-                          <DropdownMenuItem
-                            key={`redo-${g.stage}`}
-                            onClick={() => act(api.pipelineRedo, g.stage)}
-                          >
-                            重做「{g.label}」
-                          </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                </>
-              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
+
       <CollapsibleContent>
-        <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
-          {pipeline.gates.map((g, i) => (
-            <PlanChip key={g.stage} gate={g} first={i === 0} onClick={() => act(api.pipelineEnter, g.stage)} />
-          ))}
+        <div className="px-2 pt-0.5 pb-2">
+          <ul className="divide-y overflow-hidden rounded-md border bg-background/60">
+            {pipeline.gates.map((g) => {
+              const enterable = g.enterable && !g.current;
+              return (
+                <li key={g.stage}>
+                  <div
+                    role={enterable ? "button" : undefined}
+                    onClick={enterable ? () => act(api.pipelineEnter, g.stage) : undefined}
+                    title={g.blocked_by ?? undefined}
+                    className={cn(
+                      "group/row flex items-center gap-2 px-2.5 py-1.5 text-xs transition-colors",
+                      enterable && "cursor-pointer hover:bg-accent/50",
+                      g.current && "bg-primary/5",
+                    )}
+                  >
+                    {g.confirmed ? (
+                      <Check className="size-3.5 shrink-0 text-emerald-600" />
+                    ) : g.current ? (
+                      <Circle className="size-3.5 shrink-0 fill-primary text-primary" />
+                    ) : enterable ? (
+                      <Circle className="size-3.5 shrink-0 text-muted-foreground/50" />
+                    ) : (
+                      <Lock className="size-3.5 shrink-0 text-muted-foreground/40" />
+                    )}
+                    <span className={cn("flex-1 truncate", g.current && "font-medium")}>
+                      {g.label}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {g.current
+                        ? "当前阶段"
+                        : g.confirmed
+                          ? "已确认"
+                          : enterable
+                            ? "可进入"
+                            : "未解锁"}
+                    </span>
+                    {g.confirmed && (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-0.5 text-muted-foreground/35 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30"
+                        disabled={busy}
+                        title={`重做「${g.label}」（其后确认一并取消）`}
+                        aria-label={`重做 ${g.label}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          act(api.pipelineRedo, g.stage);
+                        }}
+                      >
+                        <RotateCcw className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -180,38 +205,4 @@ function nextHint(pipeline: PipelineView): string {
   if (nextUnconfirmed) return `下一步：进入「${nextUnconfirmed.label}」`;
   const anyStage = pipeline.gates.find((g) => g.enterable && !g.current);
   return anyStage ? `可进入「${anyStage.label}」` : "全部阶段已确认";
-}
-
-function PlanChip({
-  gate,
-  first,
-  onClick,
-}: {
-  gate: GateInfo;
-  first: boolean;
-  onClick: () => void;
-}) {
-  const clickable = gate.enterable && !gate.current;
-  return (
-    <button
-      type="button"
-      onClick={clickable ? onClick : undefined}
-      title={gate.blocked_by ?? (gate.confirmed ? "已确认" : gate.current ? "当前阶段" : "")}
-      className={cn(
-        "flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors",
-        first ? "" : "ml-0.5",
-        gate.current
-          ? "bg-primary text-primary-foreground"
-          : gate.confirmed
-            ? "bg-primary/10 text-primary"
-            : gate.enterable
-              ? "text-muted-foreground hover:bg-accent"
-              : "cursor-not-allowed text-muted-foreground/50",
-      )}
-      disabled={!clickable}
-    >
-      {gate.confirmed && !gate.current && <Check className="size-3" />}
-      {gate.label}
-    </button>
-  );
 }

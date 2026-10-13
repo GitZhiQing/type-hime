@@ -62,7 +62,8 @@ function SelectContent({
   sideOffset = 4,
   align = "center",
   alignOffset = 0,
-  alignItemWithTrigger = true,
+  // 默认关闭"选中项对齐覆盖触发器"的原生式布局：弹层标准地在触发器下方展开
+  alignItemWithTrigger = false,
   ...props
 }: SelectPrimitive.Popup.Props &
   Pick<
