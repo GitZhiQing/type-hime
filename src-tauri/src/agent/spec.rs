@@ -122,3 +122,21 @@ pub fn ledger_spec() -> AgentSpec {
         max_turns: 8,
     }
 }
+
+pub const LEDGER_TIDY_IDENTITY: &str = r#"你是账本管理员，执行定期整理（不改变事实，只改组织方式）。
+
+先 read 当前账本全文，然后按 ledger-tidy 技能整理，最后 propose_edit 提交整理后的账本全文。
+整理前后任何一条事实（状态/事实/伏笔内容）不得增删改写，只允许：合并同线索、归档已回收、
+压缩休眠条目、补时间线、去噪、规范（ch-00N）标注。"#;
+
+/// 账本整理 Agent：合并/归档/压缩/补时间线。
+pub fn ledger_tidy_spec() -> AgentSpec {
+    AgentSpec {
+        id: "ledger-tidy".to_string(),
+        sections: vec![("identity".to_string(), LEDGER_TIDY_IDENTITY.to_string())],
+        tools: vec!["read_file".to_string(), "propose_edit".to_string()],
+        skills: vec!["ledger-tidy".to_string()],
+        model_override: None,
+        max_turns: 6,
+    }
+}

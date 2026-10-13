@@ -487,6 +487,50 @@ async fn propose_ledger_update(
     Ok(())
 }
 
+/// 关联泄漏检查（零 token）：可见条目内容是否大段复述隐藏条目。
+#[tauri::command]
+fn check_visibility_leak(work_path: String) -> Result<Vec<String>, String> {
+    lore::check_visibility_leak(&PathBuf::from(work_path))
+}
+
+/// 账本整理 pass：合并同线索/归档已回收/压缩休眠/补时间线（提议经审阅）。
+#[tauri::command]
+async fn tidy_ledger(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    work_path: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let settings = kernel::current_settings()?;
+    let spec = agent::spec::ledger_tidy_spec();
+    let ledger_path = ledger::LEDGER_PATH;
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(&queue.0),
+        on_proposal: Arc::new(move |p: &review::Proposal| {
+            let _ = app.emit("review:new", p);
+        }),
+        expect: None,
+    };
+    let prompt = format!(
+        "请整理账本 {ledger_path}：read 全文 → 按 ledger-tidy 规程整理 → propose_edit 提交整理后全文（路径 {ledger_path}）。"
+    );
+    let _outcome = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| {
+            let _ = on_event.send(ev);
+        },
+    )
+    .await?;
+    Ok(())
+}
+
 /// 独立预检（零 token 快速检查，不发模型请求）。
 #[tauri::command]
 fn preflight_chapter(
@@ -902,6 +946,8 @@ pub fn run() {
             list_issues,
             record_issue_ruling,
             get_usage_summary,
+            check_visibility_leak,
+            tidy_ledger,
             // diff 审阅
             list_proposals,
             apply_proposal,

@@ -26,6 +26,7 @@ const BUILTIN_SKILLS: &[(&str, &str)] = &[
         "review-consistency.md",
         include_str!("skills/review-consistency.md"),
     ),
+    ("ledger-tidy.md", include_str!("skills/ledger-tidy.md")),
 ];
 
 /// 解析单个 md 文件为 Skill；frontmatter 缺 name 时以文件名为名。
