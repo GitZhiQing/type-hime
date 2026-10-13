@@ -234,6 +234,28 @@ export const api = {
       tokenBudget,
     }),
 
+  // 生成流水线
+  generateArtifact: (
+    workPath: string,
+    volume: number,
+    chapter: string,
+    target: "chapter_outline" | "chapter",
+    onEvent: Channel<AgentEvent>,
+  ) =>
+    invoke<void>("generate_artifact", { workPath, volume, chapter, target, onEvent }),
+  proposeLedgerUpdate: (
+    workPath: string,
+    volume: number,
+    chapter: string,
+    onEvent: Channel<AgentEvent>,
+  ) =>
+    invoke<void>("propose_ledger_update", {
+      workPath,
+      volume,
+      chapter,
+      onEvent,
+    }),
+
   // 会话
   listSessions: (workPath: string) =>
     invoke<[string, string, string][]>("list_sessions", { workPath }),

@@ -10,6 +10,7 @@ import {
 import { ResourceTree } from "@/components/ResourceTree";
 import { EditorPane } from "@/components/EditorPane";
 import { ChatPane } from "@/components/ChatPane";
+import { GeneratePane } from "@/components/GeneratePane";
 import { StageBar } from "@/components/StageBar";
 import { DiffPane } from "@/components/DiffPane";
 import { AssemblyPane } from "@/components/AssemblyPane";
@@ -236,7 +237,21 @@ export function Workbench() {
         <ResizableHandle withHandle />
 
         <ResizablePanel defaultSize={44} minSize={24}>
-          <ChatPane workPath={workPath} />
+          <Tabs defaultValue="chat" className="flex h-full flex-col">
+            <TabsList className="m-2 grid w-auto grid-cols-2 self-start">
+              <TabsTrigger value="chat">对话</TabsTrigger>
+              <TabsTrigger value="generate">生成</TabsTrigger>
+            </TabsList>
+            <TabsContent value="chat" className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+              <ChatPane workPath={workPath} />
+            </TabsContent>
+            <TabsContent
+              value="generate"
+              className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+            >
+              <GeneratePane workPath={workPath} onProposal={refresh} />
+            </TabsContent>
+          </Tabs>
         </ResizablePanel>
 
         <ResizableHandle withHandle />

@@ -4,7 +4,7 @@ mod frontmatter;
 pub mod git;
 pub mod ledger;
 pub mod lore;
-mod pipeline;
+pub mod pipeline;
 pub mod review;
 pub mod settings;
 pub mod works;
@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter, State};
 use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
-use agent::spec::{chat_spec, AgentSpec};
+use agent::spec::{chat_spec, ledger_spec, writer_spec, AgentSpec};
 use agent::tools::ToolCtx;
 use lore::{SettingMeta, Visibility};
 use pipeline::{PipelineState, PipelineView, Stage};
@@ -309,6 +309,150 @@ async fn chat_stream(
 }
 
 // ---------------------------------------------------------------------------
+// 生成流水线（内核组合 Agent：writer / ledger）
+
+/// 生成章纲或正文：装配 → writer agent 流式生成 → 提议经审阅队列。
+/// target: "chapter_outline" | "chapter"
+#[tauri::command]
+async fn generate_artifact(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    target: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let settings = kernel::current_settings()?;
+
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter.clone();
+    opts.stage = if target == "chapter_outline" {
+        pipeline::Stage::ChapterOutline
+    } else {
+        pipeline::Stage::Chapters
+    };
+
+    let assembled = assembly::assemble(&work_dir, &opts)?;
+    if assembled.over_budget {
+        return Err(format!(
+            "装配结果约 {} tokens，超出预算 {}；请调低档位或预算",
+            assembled.total_tokens, opts.token_budget
+        ));
+    }
+
+    // 预检目标产物路径，写进任务指令
+    let (file_hint, stage_hint) = if target == "chapter_outline" {
+        (
+            assembly::chapter_outline_path(volume, &chapter),
+            "撰写本章章纲（用 propose_write 提交，路径见下）",
+        )
+    } else {
+        (
+            assembly::chapter_path(volume, &chapter),
+            "撰写本章正文全文（用 propose_write 提交，路径见下）",
+        )
+    };
+
+    let mut spec = writer_spec(&assembled.system);
+    spec.sections.push((
+        "task".to_string(),
+        format!("{stage_hint}\n目标文件：{file_hint}"),
+    ));
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(&queue.0),
+        on_proposal: Arc::new(move |p: &review::Proposal| {
+            let _ = app.emit("review:new", p);
+        }),
+    };
+
+    let prompt = format!(
+        "{}\n\n# 输出文件\n{file_hint}\n\n请开始工作：完成后用 propose_write 提交全文。",
+        assembly::render_prompt(&assembled)
+    );
+
+    let (_text, messages) = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| {
+            let _ = on_event.send(ev);
+        },
+    )
+    .await?;
+
+    // 生成会话落盘（审计）
+    let sess = Session {
+        id: format!("gen-{target}-{volume:02}-{chapter}"),
+        created_at: works::now_iso(),
+        messages,
+    };
+    let _ = session::save_session(&work_dir, &sess);
+    Ok(())
+}
+
+/// 账本回写：读本章正文 + 账本 → ledger agent 提议更新账本。
+#[tauri::command]
+async fn propose_ledger_update(
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let settings = kernel::current_settings()?;
+    let spec = ledger_spec();
+
+    let ch_path = assembly::chapter_path(volume, &chapter);
+    if !work_dir.join(&ch_path).exists() {
+        return Err(format!("本章正文不存在：{ch_path}（先完成正文生成与审阅）"));
+    }
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(&queue.0),
+        on_proposal: Arc::new(move |p: &review::Proposal| {
+            let _ = app.emit("review:new", p);
+        }),
+    };
+
+    let prompt = format!(
+        "第{volume}卷 {chapter} 已完稿。请先 read_file 读取正文 {ch_path} 与账本 {ledger_path}，\
+         然后 propose_edit 提交更新后的账本全文（路径 {ledger_path}）。",
+        ch_path = ch_path,
+        ledger_path = ledger::LEDGER_PATH,
+    );
+
+    let (_text, messages) = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| {
+            let _ = on_event.send(ev);
+        },
+    )
+    .await?;
+
+    let sess = Session {
+        id: format!("gen-ledger-{volume:02}-{chapter}"),
+        created_at: works::now_iso(),
+        messages,
+    };
+    let _ = session::save_session(&work_dir, &sess);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // diff 审阅
 
 #[tauri::command]
@@ -380,6 +524,9 @@ pub fn run() {
             list_sessions,
             load_session_view,
             chat_stream,
+            // 生成流水线
+            generate_artifact,
+            propose_ledger_update,
             // diff 审阅
             list_proposals,
             apply_proposal,

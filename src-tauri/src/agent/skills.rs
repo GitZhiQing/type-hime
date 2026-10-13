@@ -20,10 +20,8 @@ pub struct Skill {
 
 /// 内置技能（编译进二进制；后续切片按需扩充）
 const BUILTIN_SKILLS: &[(&str, &str)] = &[
-    (
-        "writer-basics.md",
-        include_str!("skills/writer-basics.md"),
-    ),
+    ("writer-basics.md", include_str!("skills/writer-basics.md")),
+    ("ledger-update.md", include_str!("skills/ledger-update.md")),
 ];
 
 /// 解析单个 md 文件为 Skill；frontmatter 缺 name 时以文件名为名。

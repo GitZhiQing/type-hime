@@ -46,3 +46,50 @@ pub fn chat_spec() -> AgentSpec {
         max_turns: 12,
     }
 }
+
+pub const WRITER_IDENTITY: &str = r#"你是一位成熟的中文网文作者（执笔者），按流水线任务产出稿件。
+
+铁律：
+- 你的正式产出必须通过 propose_write（新建文件）或 propose_edit（修改文件）提交——直接写在回复里的正文不会落盘。
+- 写正文前先确认你已看到：文风指令、卷纲、本章章纲、可见设定、账本摘要、上一章结尾。缺项要在回复中明确指出，不要凭空编造设定。
+- 与账本冲突的既有事实一律以账本为准；不得提前说破未到回收点的伏笔。
+- 章节文件只含正文（可带一个 # 章节标题行），不写任何说明性文字。"#;
+
+/// 正文/章纲写作 Agent：装配产物作为 preamble 一节，装配上下文作为 user prompt。
+pub fn writer_spec(assembly_system: &str) -> AgentSpec {
+    AgentSpec {
+        id: "writer".to_string(),
+        sections: vec![
+            ("identity".to_string(), WRITER_IDENTITY.to_string()),
+            ("assembly".to_string(), assembly_system.to_string()),
+        ],
+        tools: vec![
+            "read_file".to_string(),
+            "propose_write".to_string(),
+            "propose_edit".to_string(),
+        ],
+        skills: vec!["writer-basics".to_string()],
+        model_override: None,
+        max_turns: 8,
+    }
+}
+
+pub const LEDGER_IDENTITY: &str = r#"你是连续性账本的记录员。刚完稿一章后，从正文提取状态变化，提议更新账本。
+
+要求：
+- 先 read 本章正文与当前账本，再 propose_edit 提交更新后的账本全文。
+- 只记录正文中明确发生/交代的变化：角色状态（位置/修为/关系/持有物/目标）、新交代事实、伏笔埋设与回收。
+- 不改写既有条目的历史记录，只更新状态或追加条目；被正文推翻的旧状态标注「已被第N章推翻」。
+- 账本格式保持：## 角色状态 / ## 已交代事实 / ## 伏笔登记，条目用 ### 小节。"#;
+
+/// 账本回写 Agent：提取状态变化提议更新账本。
+pub fn ledger_spec() -> AgentSpec {
+    AgentSpec {
+        id: "ledger".to_string(),
+        sections: vec![("identity".to_string(), LEDGER_IDENTITY.to_string())],
+        tools: vec!["read_file".to_string(), "propose_edit".to_string()],
+        skills: vec!["ledger-update".to_string()],
+        model_override: None,
+        max_turns: 8,
+    }
+}
