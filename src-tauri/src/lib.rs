@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod assembly;
 mod frontmatter;
 pub mod git;
 pub mod ledger;
@@ -226,6 +227,27 @@ fn get_ledger(work_path: String) -> Result<ledger::Ledger, String> {
     ledger::read_ledger(&PathBuf::from(work_path))
 }
 
+/// 装配预览（档位/预算可调，实际生成共用同一出口）。
+#[tauri::command]
+fn preview_assembly(
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    setting_detail: String,
+    token_budget: u64,
+) -> Result<assembly::AssemblyResult, String> {
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter;
+    opts.setting_detail = if setting_detail == "name_only" {
+        lore::Detail::NameOnly
+    } else {
+        lore::Detail::Full
+    };
+    opts.token_budget = token_budget;
+    assembly::assemble(&PathBuf::from(work_path), &opts)
+}
+
 // ---------------------------------------------------------------------------
 // 会话（通用对话 agent，中栏会话流）
 
@@ -353,6 +375,7 @@ pub fn run() {
             create_setting,
             set_setting_visibility,
             get_ledger,
+            preview_assembly,
             // 会话
             list_sessions,
             load_session_view,

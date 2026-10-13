@@ -16,6 +16,15 @@ pub enum Visibility {
     Hidden,
 }
 
+/// 装配档位：完整正文 / 仅名称。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Detail {
+    #[default]
+    Full,
+    NameOnly,
+}
+
 /// 设定条目元数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingMeta {

@@ -12,6 +12,7 @@ import { EditorPane } from "@/components/EditorPane";
 import { ChatPane } from "@/components/ChatPane";
 import { StageBar } from "@/components/StageBar";
 import { DiffPane } from "@/components/DiffPane";
+import { AssemblyPane } from "@/components/AssemblyPane";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResizableHandle,
@@ -242,9 +243,10 @@ export function Workbench() {
 
         <ResizablePanel defaultSize={34} minSize={18}>
           <Tabs defaultValue="editor" className="flex h-full flex-col">
-            <TabsList className="m-2 grid w-auto grid-cols-2 self-start">
+            <TabsList className="m-2 grid w-auto grid-cols-3 self-start">
               <TabsTrigger value="editor">编辑器</TabsTrigger>
               <TabsTrigger value="review">审阅</TabsTrigger>
+              <TabsTrigger value="assembly">装配</TabsTrigger>
             </TabsList>
             <TabsContent value="editor" className="mt-0 flex-1 data-[state=inactive]:hidden">
               <EditorPane
@@ -255,6 +257,9 @@ export function Workbench() {
             </TabsContent>
             <TabsContent value="review" className="mt-0 flex-1 data-[state=inactive]:hidden">
               <DiffPane workPath={workPath} onApplied={refresh} />
+            </TabsContent>
+            <TabsContent value="assembly" className="mt-0 flex-1 data-[state=inactive]:hidden">
+              <AssemblyPane workPath={workPath} />
             </TabsContent>
           </Tabs>
         </ResizablePanel>

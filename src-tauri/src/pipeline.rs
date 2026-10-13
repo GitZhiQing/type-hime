@@ -258,8 +258,11 @@ pub fn save_pipeline(work_dir: &Path, pipeline: &PipelineState) -> Result<(), St
 mod tests {
     use super::*;
 
-    fn work_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("type-hime-pipeline-test-{}", std::process::id()));
+    fn work_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "type-hime-pipeline-{tag}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         // 骨架
         for p in ["outline", "volumes/vol-01/chapters", "ledger"] {
@@ -276,7 +279,7 @@ mod tests {
 
     #[test]
     fn gate_blocks_and_confirms() {
-        let dir = work_dir();
+        let dir = work_dir("gate");
         let mut p = PipelineState {
             stage: Stage::Settings,
             confirmed: vec![],
@@ -320,8 +323,7 @@ mod tests {
 
     #[test]
     fn persistence_roundtrip() {
-        let dir = work_dir();
-        let mut p = PipelineState {
+        let dir = work_dir("persist");        let mut p = PipelineState {
             stage: Stage::Settings,
             confirmed: vec![],
         };

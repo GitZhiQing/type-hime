@@ -102,6 +102,23 @@ export interface Proposal {
   created_at: string;
 }
 
+export interface AssembledComponent {
+  name: string;
+  content: string;
+  tokens: number;
+  included: boolean;
+  missing_hint: string | null;
+}
+
+export interface AssemblyResult {
+  system: string;
+  system_tokens: number;
+  components: AssembledComponent[];
+  filtered_by_visibility: number;
+  total_tokens: number;
+  over_budget: boolean;
+}
+
 export const api = {
   getWorksRoot: () => invoke<string>("get_works_root"),
   listWorks: () => invoke<WorkSummary[]>("list_works"),
@@ -200,6 +217,22 @@ export const api = {
   applyProposal: (workPath: string, id: number) =>
     invoke<string>("apply_proposal", { workPath, id }),
   rejectProposal: (id: number) => invoke<void>("reject_proposal", { id }),
+
+  // 装配
+  previewAssembly: (
+    workPath: string,
+    volume: number,
+    chapter: string,
+    settingDetail: "full" | "name_only",
+    tokenBudget: number,
+  ) =>
+    invoke<AssemblyResult>("preview_assembly", {
+      workPath,
+      volume,
+      chapter,
+      settingDetail,
+      tokenBudget,
+    }),
 
   // 会话
   listSessions: (workPath: string) =>
