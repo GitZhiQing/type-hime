@@ -1,7 +1,7 @@
 ---
 created: 2026-10-14
 status: 已确认 · 2026-10-14
-note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14）的工程执行计划。每片独立可验收、一片一提交；顺序 R1 → R2 → {R3、R4 可并行} → R5 → R6；R7 为后置可选路线（触发条件表）。进展（2026-10-14）：R1/R2/R3 已完成（另含多轮 UI 打磨：Markdown 渲染、工具卡结构化、消息形态、PLAN 条与上下文面板重设计），实施中的选型演化以 DECISIONS D26 起条目为准；下一片 R4。实施进度以提交记录为准。
+note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14）的工程执行计划。每片独立可验收、一片一提交；顺序 R1 → R2 → {R3、R4 可并行} → R4.5 → R5 → R6；R7 为后置可选路线（触发条件表）。进展（2026-10-14）：R1/R2/R3 已完成（另含多轮 UI 打磨：Markdown 渲染、工具卡结构化、消息形态、PLAN 条与上下文面板重设计），实施中的选型演化以 DECISIONS D26 起条目为准；下一片 R4。R4 计划修订（2026-10-14，见 D30/D31）：权限由三档收敛为两档（变更前确认/完全访问，输入框左下角下拉，会话级；Goal 档取消）、新增切片 R4.5 长时目标（/goal，提示词 spike 先行）。实施进度以提交记录为准。
 ---
 
 # REFACTOR · 重构执行计划
@@ -25,7 +25,7 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 
 | # | 采纳 | 来源 | 落点 |
 | --- | --- | --- | --- |
-| A1 | 权限三档 × **per-tool/per-action 覆盖矩阵**：会话级 `PermissionMode{Review,Auto,Goal}` + project.json `tool_overrides` 表（如「git log 永远自动、正文提议永远人工」） | goose `smart_approve` per-tool 覆盖、Cursor per-tool auto-approval | R4 |
+| A1 | 权限两档（修订 2026-10-14，原三档）× **per-tool/per-action 覆盖矩阵**：会话级 `PermissionMode{Confirm,FullAccess}` + project.json `tool_overrides` 表（如「git log 永远自动、正文提议永远人工」） | goose `smart_approve` per-tool 覆盖、Cursor per-tool auto-approval、ZCode 会话模式控件（会话级档位 + 工具权限块门控，见 D30） | R4 |
 | A2 | 审批交互 = 会话内 Allow/Deny 卡片（工具调用挂起等待） | goose 会话窗口 Allow/Deny | R4 Spike A（ApprovalBroker） |
 | A3 | **bash 白名单 = 配置文件**而非硬编码：全局（app data）+ 作品级两层，内置默认集（git 只读等），提供 example 文件入库 | goose goose_mode TOML 配置化、aichat 声明式配置惯例 | R4 |
 | A4 | token 计数指纹缓存：同内容不重复估算 | goose DashMap 计数缓存 | R3 |
@@ -56,8 +56,9 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 | R1 | 应用骨架 + 真会话 | 前端重 / 后端轻 | M | — |
 | R2 | 聊天升级（AI Elements + slash/@ + 内联提议 + PLAN 条） | 前端重 / 后端轻 | L | R1 |
 | R3 | 上下文工程 | 前端中 / 后端中 | M | R2 |
-| R4 | Agent 能力 + 权限（bash + 工具桥 + 三档×覆盖） | 后端重 / 前端中 | L | R2（与 R3 可并行） |
-| R5 | 制品面板 + 旧 UI 退役 | 前端重 | M | **R4 完成**（聊天具备全部能力后才拆按钮） |
+| R4 | Agent 能力 + 权限（bash + 工具桥 + 两档×覆盖） | 后端重 / 前端中 | L | R2（与 R3 可并行） |
+| R4.5 | 长时目标（/goal，轮末验证器 + 迭代进度） | 后端中 / 前端中 | M | **R4 完成** |
+| R5 | 制品面板 + 旧 UI 退役 | 前端重 | M | **R4 完成**（聊天具备全部能力后才拆按钮；建议排 R4.5 之后） |
 | R6 | git 自动化 + 文档对齐收尾 | 后端轻 | S | R5 |
 
 ---
@@ -131,7 +132,7 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 
 ## 6. R4 · Agent 能力 + 权限
 
-**目标**：聊天 Agent 具备全部操作能力（原 8 按钮 + 检查 + 查询）；bash 白名单 + 权限三档×覆盖矩阵上线；slash 切换为 Agent 指令。
+**目标**：聊天 Agent 具备全部操作能力（原 8 按钮 + 检查 + 查询）；bash 白名单 + 权限两档×覆盖矩阵上线；slash 切换为 Agent 指令。
 
 **第 0 步（两个 spike，先于一切工具开发）**
 - **Spike A（审批挂起）**：rig 工具内 oneshot channel 挂起等 UI 确认——`ApprovalBroker`（请求队列+超时+取消）；webapi SSE 加心跳防长等待断连，Tauri Channel 天然支持。验证：工具调用暂停→UI Allow/Deny→继续。（与 goose 会话内 Allow/Deny 形态一致，A2）
@@ -140,8 +141,8 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 - 同步 **inner facade**：rig 类型（Message/AgentBuilder/事件）收敛 kernel.rs 内 + 会话存档 `format_version`。
 
 **后端改动**
-- **权限模型（A1）**：`PermissionMode { Review, Auto, Goal }` 会话级（存 project.json+会话）；project.json `tool_overrides` 表——按工具名/命令模式覆盖档位；统一权限检查器：工具执行前 resolve（会话档位 → override → 内置默认）。**永远留人硬编码在工具层**：可见性设置、删除/恢复文件、跳过阶段、装配切全量——任何档位与 override 不可豁免。
-- **bash 工具（A3）**：白名单来自配置文件（全局 app data + 作品级两层，`config.example` 入库）+ 内置默认（git status/log/diff/show、登记的 CLI、只读管道组合）；写产物模式黑名单（`>`、`>>`、`sed -i`、`rm`、`mv` 至作品路径等）→ 拦截并提示改用 propose_*；Review 档经 ApprovalBroker，Auto/Goal 档白名单直通。
+- **权限模型（A1，2026-10-14 修订为两档）**：`PermissionMode { Confirm 变更前确认, FullAccess 完全访问 }` 会话级（存会话档案，重连恢复，新会话回落确认档）；project.json `tool_overrides` 表——按工具名/命令模式（bash）/路径模式（propose_*）覆盖档位；统一权限检查器：工具执行前 resolve（更具体 pattern 的 override → 会话档位 → 内置默认）。完全访问自动应用一切提议，但触及可见性 frontmatter（visibility/open_at_vol 变化）的提议永不自动应用（`Proposal.requires_review` 硬闸，进人工队列带徽标）。**永远留人硬编码在工具层**：可见性设置、删除/恢复文件、跳过阶段、装配切全量——任何档位与 override 不可豁免（D32）。
+- **bash 工具（A3）**：白名单来自配置文件（全局 app data + 作品级两层，`config.example` 入库）+ 内置默认（git status/log/diff/show、登记的 CLI、只读管道组合）；写产物模式黑名单（`>`、`>>`、`sed -i`、`rm`、`mv` 至作品路径等）→ 拦截并提示改用 propose_*；变更前确认档经 ApprovalBroker 逐条审批，完全访问档白名单直通。
 - **run_flow 工具**：kind 枚举（章纲/正文/回写/一致性/deai/复检/审卷/整理）→ 调 `flows.rs`（子会话沿用现有 per-flow session 规则）；触发前补 `pipeline::gate_check`（现状 flows 不查门）。
 - **直连检查工具**：`check_visibility_leak()` / `preflight_chapter(volume, chapter)`（零 token 薄包装）。
 - **查询工具**：`get_ledger` / `list_issues` / `list_lore(filter)`（只读、结构化）。
@@ -149,12 +150,28 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 - `cargo test` 新增：白名单解析表驱动用例、**权限矩阵**（档位 × override × 操作类型 × 期望）、gate 前置校验、写产物拦截。
 
 **前端改动**
-- `Confirmation` 审批卡（bash 命令 + 白名单标记 + 允许/拒绝）；权限档位切换（顶栏徽标 + Goal 一次性风险确认弹窗 + per-tool override 设置入口）。
+- `Confirmation` 审批卡（bash 命令 + 白名单标记 + 允许/拒绝 + 「本会话完全访问」升档按钮）；权限档位控件 = **输入框左下角下拉**（当前档图标+名称展示，弹层两项带描述行，当前项打勾；照搬 ZCode 会话模式控件形态，D30）；per-tool override 设置入口置于该下拉内。
 - `Task` + `Terminal`：子任务卡（进度/摘要，展开看工具轨迹与 bash 输出）。
 - slash 切换：dispatch 表退役 → slash 指令作为结构化消息发 Agent（`/正文 卷1 章3` → 「请执行：正文，卷1 章3」+ 强制挂载对应技能），Agent 走 run_flow。
 
-**验证**：聊天内完成原 8 按钮全部能力且 issues.json/账本副作用闭环不破；`echo > 设定/x.md` 被拦并引导 propose_*；权限矩阵测试全绿；Review 档 bash 逐条确认、Auto 直通；override（如「git log 永远自动」）生效；Goal 档四类留人操作仍弹确认。
-**提交拆分**：① Spike A+B+inner facade ② 权限模型+检查器+override 配置 ③ bash 工具+白名单+审批 UI ④ run_flow+子任务卡 ⑤ 查询/检查工具+技能挂载 ⑥ slash 切换为 Agent 指令。
+**验证**：聊天内完成原 8 按钮全部能力且 issues.json/账本副作用闭环不破；`echo > 设定/x.md` 被拦并引导 propose_*；权限矩阵测试全绿；变更前确认档 bash 逐条确认、完全访问档直通；override（如「git log 永远自动」）生效；完全访问档四类留人操作仍弹确认；档位随会话持久化、审批卡升档可用。
+**提交拆分**：① Spike A（审批挂起）单独提交 ② Spike B（子任务事件 + run_flow 全量 kind + gate_check + 最小子任务卡）单独提交 ③ 权限模型（两档）+检查器+override 配置 ④ bash 白名单配置化+写产物黑名单+留人 guard ⑤ 权限 UI（输入框左下角档位下拉 + 审批卡 + 自动应用接线） ⑥ 查询/检查工具+技能挂载 ⑦ 子任务卡完善（轨迹展开） ⑧ slash 切换为 Agent 指令 ⑨ 验收走查+文档。
+
+---
+
+## 6.5 R4.5 · 长时目标（/goal，2026-10-14 修订增补）
+
+**目标**：会话级长时目标——「把第一卷 10 章全部审校一遍」这类跨多轮子任务的批量目标，Agent 迭代执行、轮末自动验证、进度可见（形态来源：Codex `/goal` 可验证停止条件 + ZCode goal 验证器迭代，见 D31）。
+
+**第 0 步（提示词 spike，单独提交）**：完成验证器 + 完成审计提示词在真实迭代里调通（在 R4 的 run_flow 之上跑 2-3 轮真实目标）。
+**判定标准**：目标真完成时验证器 pass 收尾；AI 假完成（产出过计划/清单、子任务绿但未覆盖目标全部要求、凭耗时与意图）被判 fail 并续跑；非任务目标（如「你好」）一轮 pass 不无限续跑；中文目标的 reason/nextAction 为中文；坏 JSON fail-open 不卡死已交付目标。
+**不通过** → 降级为「目标 + 手动任务清单」（agent 只维护 todo 列表，不自动续跑），决策记 DECISIONS。
+
+**后端改动**：`SessionGoal{objective,status(active|paused|budget_limited|complete),iterations[],budget}` 存会话档案；`/goal` 指令解析（设置/暂停/恢复/清除/替换）；轮末自动运行轻量验证器（独立调用、禁工具、JSON `{passed,reason,nextAction}`）；迭代仅由验证器边界推进（用户消息与 TodoWrite 不推进）；目标注入按不可信数据包裹（`<untrusted_objective>` + 转义）；goal 启动时提示切换「完全访问」。
+**前端改动**：PLAN 条上方目标横幅（目标摘要 + 迭代行：标题=上一轮 nextAction、完成计数、验证结论；暂停/继续/清除）。
+
+**验证**：浏览器通道跑一个真实批量目标至 complete；中途 pause/resume 生效；假完成场景被验证器拦截并继续迭代。
+**提交拆分**：① 提示词 spike ② 后端目标状态机+验证器 ③ /goal 指令+前端进度 UI。
 
 ---
 
@@ -181,7 +198,7 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 
 **文档对齐**（按 REDESIGN §14.3 清单）
 - `SPEC.md`：D0-4/D0-5/D0-6/D0-7 修订；走通路径与切片章节按新形态重写。
-- `DECISIONS.md`：追加 D19 起——权限三档×覆盖矩阵（含来源 goose）、bash 白名单配置化、上下文三层、AI Elements 引入路线（R2 spike 结果）、rig 防御 facade、会话形态、MCP 后置路线。
+- `DECISIONS.md`：追加 D19 起——权限分档（D30 收敛为两档）、bash 白名单配置化、上下文三层、AI Elements 引入路线（R2 spike 结果）、rig 防御 facade、会话形态、长时目标（D31）、MCP 后置路线（D19-D32 已随各切片落账，收尾时核对无遗漏）。
 - `AGENTS.md`：目录速览、命令、硬约束更新。
 - `examples/regression`：扩展为「仅聊天+制品」全流程断言。
 
@@ -219,3 +236,4 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 - neuron：[r/rust 发布帖](https://www.reddit.com/r/rust/comments/1rchad0/neuron_composable_building_blocks_for_ai_agents) / [crates.io/neuron](https://crates.io/crates/neuron)
 - rig MCP：[rig.rs 官方 MCP 集成文档](https://rig.rs/docs/integrations/model_context_protocol) / [modelcontextprotocol/rust-sdk（rmcp）](https://github.com/modelcontextprotocol/rust-sdk)
 - rig 选型复核（2026-10-14 会话）：rig 为 Rust agent 框架头部、项目自建 harness 路线正确、防御动作三条
+- ZCode 开源仓库（2026-10-14 深读，权限两档与 R4.5 来源）：[zai-org/ZCode](https://github.com/zai-org/ZCode)——会话模式控件与持久化（services/session/sessionModeOptions.ts、ui i18n 模式标签）、工具权限块门控（core/permission/service.ts）、审批流授予完全访问（core/runtime/permission-full-access.ts）、goal 验证器提示词全文（contracts/tools/target.ts）与迭代进度模型（ui conversationGoalSummaryModel.ts）、TodoWrite 与提醒（core/tool/handlers/todo.ts、core/runtime/helpers/runtime-reminders.ts）

@@ -60,6 +60,6 @@ examples/        chat_smoke / full_flow / mvp_flow / write_book / regression / w
 - cargo check 警告保持 0（cargo fix --lib 可自动清）。
 - 开发纪律：一片一提交（中文提交信息），切片验收通过才进下一片；先 cargo check/test 绿再动前端。
 - 文档纪律：产物按现状书写，演进过程交给提交说明与 DECISIONS.md。
-- 重构进行中（docs/REFACTOR.md；R1-R3 已完成 + UI 打磨，R4-R6 待实施）：新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）；R4 验收通过前不得移除 GeneratePane（右栏过渡 Tab）。实施中的选型演化以 DECISIONS D26 起条目为准。
+- 重构进行中（docs/REFACTOR.md；R1-R3 已完成 + UI 打磨，R4-R6 待实施，另新增 R4.5 长时目标；R4 计划已修订：权限两档 + 输入框左下角档位下拉，见 D30）：新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）；R4 验收通过前不得移除 GeneratePane（右栏过渡 Tab）。实施中的选型演化以 DECISIONS D26 起条目为准。
 - Tailwind v4 不扫描 node_modules：第三方组件（e.g. streamdown）的效用类不会生成 CSS——用 @source 显式纳入或写作用域 CSS（曾致复制按钮 pointer-events 失效、物理不可点）。
 - 交互验证必须用真实事件：合成 el.click() 绕过浏览器命中测试会产生假阳性；原生弹层（select/confirm/dialog）在嵌入环境定位不可控，统一用 shadcn 组件（ui/select、Dialog 等，Select 弹层 alignItemWithTrigger=false 标准下方展开）。
