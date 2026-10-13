@@ -71,11 +71,13 @@ let new_messages = outcome_final_text.messages;
     let sess = type_hime_lib::agent::session::Session {
         id: "smoke-test".into(),
         created_at: type_hime_lib::works::now_iso(),
+        title: None,
         messages: new_messages,
         usage: None,
     };
-    type_hime_lib::agent::session::save_session(&work_dir, &sess)?;
-    let back = type_hime_lib::agent::session::load_session(&work_dir, "smoke-test")?;
+    let store = type_hime_lib::agent::session::SessionStore::Work(work_dir.clone());
+    type_hime_lib::agent::session::save_session(&store, &sess)?;
+    let back = type_hime_lib::agent::session::load_session(&store, "smoke-test")?;
     println!("[5] 会话落盘回读：{} 条消息 ✓", back.messages.len());
 
     // 提议审阅：接受后落盘 + git 留痕

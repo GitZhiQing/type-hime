@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use agent::events::AgentEvent;
 use agent::kernel;
-use agent::session::{self, Session};
-use agent::spec::{chat_spec, ledger_spec, ledger_tidy_spec, reviewer_spec, writer_spec, AgentSpec};
+use agent::session::{self, Session, SessionStore};
+use agent::spec::{chat_spec, global_chat_spec, ledger_spec, ledger_tidy_spec, reviewer_spec, writer_spec, AgentSpec};
 use agent::tools::ToolCtx;
 use pipeline::Stage;
 use review::{Proposal, ReviewQueue};
@@ -36,16 +36,17 @@ fn merge_usage(
 /// 通用会话运行（chat / tidy 等单 prompt 场景）。
 async fn run_and_save_session(
     sess_id: String,
-    work_dir: &PathBuf,
-    tool_ctx: &ToolCtx,
+    store: &SessionStore,
+    tool_ctx: Option<&ToolCtx>,
     spec: &AgentSpec,
     prompt: &str,
     on_event: &EventSink,
 ) -> Result<(), String> {
     let settings = kernel::current_settings()?;
-    let mut sess = session::load_session(work_dir, &sess_id).unwrap_or(Session {
+    let mut sess = session::load_session(store, &sess_id).unwrap_or(Session {
         id: sess_id.clone(),
         created_at: works::now_iso(),
+        title: None,
         messages: Vec::new(),
         usage: None,
     });
@@ -53,7 +54,7 @@ async fn run_and_save_session(
     let sink = Arc::clone(on_event);
     let outcome = kernel::run(
         &settings,
-        Some(tool_ctx),
+        tool_ctx,
         spec,
         history,
         prompt,
@@ -62,7 +63,41 @@ async fn run_and_save_session(
     .await?;
     sess.messages.extend(outcome.messages);
     sess.usage = merge_usage(sess.usage, outcome.usage);
-    session::save_session(work_dir, &sess)
+    session::save_session(store, &sess)
+}
+
+/// 会话自动标题：首轮完成后生成一句短标题；任何失败回退首条用户消息截断（静默）。
+async fn autotitle(store: &SessionStore, sess_id: &str) {
+    let Ok(mut sess) = session::load_session(store, sess_id) else {
+        return;
+    };
+    if sess.title.is_some() || sess.messages.is_empty() {
+        return;
+    }
+    let first_user = session::first_user_text(&sess);
+    let preview: String = first_user.chars().take(24).collect();
+    let generated = try_generate_title(&first_user).await;
+    sess.title = Some(generated.unwrap_or(preview));
+    let _ = session::save_session(store, &sess);
+}
+
+async fn try_generate_title(first_user: &str) -> Option<String> {
+    let settings = kernel::current_settings().ok()?;
+    let head: String = first_user.chars().take(200).collect();
+    let prompt = format!(
+        "为下面的对话起一个不超过16字的简短标题，直接输出标题本身，不要引号和标点：\n{head}"
+    );
+    let out = kernel::one_shot_completion(&settings, "你是对话标题生成器，只输出标题。", &prompt)
+        .await
+        .ok()?;
+    let line = out.lines().next().unwrap_or("").trim();
+    let line = line.trim_matches(|c: char| c == '"' || c == '“' || c == '”' || c == '#');
+    let line: String = line.chars().take(24).collect();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line)
+    }
 }
 
 /// 流式对话（旁路会话）：产物经提议审阅回流。
@@ -82,7 +117,24 @@ pub async fn chat_flow(
         on_proposal,
         expect: None,
     };
-    run_and_save_session(session_id, &work_dir, &tool_ctx, &spec, &prompt, &on_event).await
+    let store = SessionStore::Work(work_dir);
+    run_and_save_session(session_id.clone(), &store, Some(&tool_ctx), &spec, &prompt, &on_event)
+        .await?;
+    autotitle(&store, &session_id).await;
+    Ok(())
+}
+
+/// 全局对话（rail「对话」页）：无作品上下文、无文件工具、无提议。
+pub async fn chat_flow_global(
+    session_id: String,
+    prompt: String,
+    on_event: EventSink,
+) -> Result<(), String> {
+    let spec = global_chat_spec();
+    let store = SessionStore::Global;
+    run_and_save_session(session_id.clone(), &store, None, &spec, &prompt, &on_event).await?;
+    autotitle(&store, &session_id).await;
+    Ok(())
 }
 
 /// 生成章纲或正文。target: "chapter_outline" | "chapter"
@@ -158,6 +210,7 @@ pub async fn generate_artifact_flow(
     let sess = Session {
         id: format!("gen-{target}-{volume:02}-{chapter}"),
         created_at: works::now_iso(),
+        title: None,
         messages: Vec::new(),
         usage: None,
     };
@@ -174,7 +227,7 @@ pub async fn generate_artifact_flow(
     let mut sess = sess;
     sess.messages = outcome.messages;
     sess.usage = outcome.usage;
-    let _ = session::save_session(&work_dir, &sess);
+    let _ = session::save_session(&SessionStore::Work(work_dir), &sess);
     Ok(())
 }
 
@@ -206,8 +259,8 @@ pub async fn ledger_update_flow(
     };
     run_and_save_session(
         format!("gen-ledger-{volume:02}-{chapter}"),
-        &work_dir,
-        &tool_ctx,
+        &SessionStore::Work(work_dir),
+        Some(&tool_ctx),
         &spec,
         &prompt,
         &on_event,
@@ -303,10 +356,11 @@ pub async fn review_flow(
     let sess = Session {
         id: format!("review-{mode}-{volume:02}-{chapter}"),
         created_at: works::now_iso(),
+        title: None,
         messages: outcome.messages,
         usage: outcome.usage,
     };
-    let _ = session::save_session(work_dir, &sess);
+    let _ = session::save_session(&SessionStore::Work(work_dir.clone()), &sess);
 
     if mode == "consistency" && !report_text.trim().is_empty() {
         let report_dir = work_dir.join("review");
@@ -464,8 +518,8 @@ pub async fn tidy_flow(
     );
     run_and_save_session(
         "gen-ledger-tidy".to_string(),
-        &work_dir,
-        &tool_ctx,
+        &SessionStore::Work(work_dir),
+        Some(&tool_ctx),
         &spec,
         &prompt,
         &on_event,

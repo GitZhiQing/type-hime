@@ -7,7 +7,7 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use axum::extract::Path;
 use axum::http::StatusCode;
@@ -15,13 +15,11 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use futures::stream::Stream;
 use serde_json::{json, Value};
 
 use type_hime_lib::agent::events::AgentEvent;
-use type_hime_lib::agent::tools::WriteExpect;
 use type_hime_lib::flows::{self, EventSink, ProposalSink};
-use type_hime_lib::review::{Proposal, ReviewQueue, SharedQueue};
+use type_hime_lib::review::{Proposal, SharedQueue};
 use type_hime_lib::{
     agent, assembly, git, issues, ledger, lore, pipeline, preflight, review, settings, works,
 };
@@ -69,6 +67,14 @@ async fn events_endpoint() -> Response {
 
 // ---------------------------------------------------------------------------
 // dispatch：POST /api/{cmd}，body 为 camelCase JSON（与前端 invoke 参数一致）
+
+fn session_store_work(
+    work_path: &str,
+) -> Result<type_hime_lib::agent::session::SessionStore, String> {
+    Ok(type_hime_lib::agent::session::SessionStore::Work(PathBuf::from(
+        work_path,
+    )))
+}
 
 async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Response {
     let body = body.map(|Json(v)| v).unwrap_or(Value::Null);
@@ -381,18 +387,54 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
             Json(total).into_response()
         }
 
-        // ---- 会话 ----
-        "list_sessions" => ok!(type_hime_lib::agent::session::list_sessions(&PathBuf::from(s("workPath")))),
-        "load_session_view" => ok!(type_hime_lib::agent::session::load_session(
-            &PathBuf::from(s("workPath")),
-            &s("sessionId")
-        )
+        // ---- 会话（作品会话 + 全局对话会话） ----
+        "list_sessions" => ok!(session_store_work(&s("workPath")).and_then(|st| {
+            type_hime_lib::agent::session::list_sessions(&st)
+        })),
+        "rename_session" => ok!(session_store_work(&s("workPath")).and_then(|st| {
+            type_hime_lib::agent::session::rename_session(&st, &s("sessionId"), &s("title"))
+        })),
+        "delete_session" => ok!(session_store_work(&s("workPath")).and_then(|st| {
+            type_hime_lib::agent::session::delete_session(&st, &s("sessionId"))
+        })),
+        "load_session_view" => ok!(session_store_work(&s("workPath")).and_then(|st| {
+            type_hime_lib::agent::session::load_session(&st, &s("sessionId"))
+        })
         .map(|sess| {
             sess.messages
                 .iter()
                 .map(type_hime_lib::agent::session::message_view)
                 .collect::<Vec<_>>()
         })),
+        "list_sessions_global" => ok!(type_hime_lib::agent::session::list_sessions(
+            &type_hime_lib::agent::session::SessionStore::Global
+        )),
+        "rename_session_global" => ok!(type_hime_lib::agent::session::rename_session(
+            &type_hime_lib::agent::session::SessionStore::Global,
+            &s("sessionId"),
+            &s("title")
+        )),
+        "delete_session_global" => ok!(type_hime_lib::agent::session::delete_session(
+            &type_hime_lib::agent::session::SessionStore::Global,
+            &s("sessionId")
+        )),
+        "load_session_view_global" => ok!(
+            type_hime_lib::agent::session::load_session(
+                &type_hime_lib::agent::session::SessionStore::Global,
+                &s("sessionId")
+            )
+            .map(|sess| {
+                sess.messages
+                    .iter()
+                    .map(type_hime_lib::agent::session::message_view)
+                    .collect::<Vec<_>>()
+            })
+        ),
+        "chat_stream_global" => stream_sse(|sink, _prop| {
+            let session_id = s("sessionId");
+            let prompt = s("prompt");
+            async move { flows::chat_flow_global(session_id, prompt, sink).await }
+        }),
 
         other => (
             StatusCode::NOT_FOUND,

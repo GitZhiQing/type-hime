@@ -143,8 +143,9 @@ export type AgentEvent =
 
 export interface SessionMeta {
   id: string;
-  created_at: string;
+  title: string;
   preview: string;
+  created_at: string;
 }
 
 export interface MessageView {
@@ -424,9 +425,13 @@ export const api = {
       workPath,
     }),
 
-  // 会话
+  // 会话（作品会话 + 全局对话会话）
   listSessions: (workPath: string) =>
-    call<[string, string, string][]>("list_sessions", { workPath }),
+    call<SessionMeta[]>("list_sessions", { workPath }),
+  renameSession: (workPath: string, sessionId: string, title: string) =>
+    call<void>("rename_session", { workPath, sessionId, title }),
+  deleteSession: (workPath: string, sessionId: string) =>
+    call<void>("delete_session", { workPath, sessionId }),
   loadSessionView: (workPath: string, sessionId: string) =>
     call<MessageView[]>("load_session_view", { workPath, sessionId }),
   chatStream: (
@@ -434,5 +439,28 @@ export const api = {
     sessionId: string,
     prompt: string,
     onEvent: EventChannel<AgentEvent>,
-  ) => callStream<AgentEvent>("chat_stream", { workPath, sessionId, prompt }, onEvent),
+  ) =>
+    callStream<AgentEvent>(
+      "chat_stream",
+      { workPath, sessionId, prompt },
+      onEvent,
+    ),
+  // 全局对话（rail「对话」页）
+  listSessionsGlobal: () => call<SessionMeta[]>("list_sessions_global"),
+  renameSessionGlobal: (sessionId: string, title: string) =>
+    call<void>("rename_session_global", { sessionId, title }),
+  deleteSessionGlobal: (sessionId: string) =>
+    call<void>("delete_session_global", { sessionId }),
+  loadSessionViewGlobal: (sessionId: string) =>
+    call<MessageView[]>("load_session_view_global", { sessionId }),
+  chatStreamGlobal: (
+    sessionId: string,
+    prompt: string,
+    onEvent: EventChannel<AgentEvent>,
+  ) =>
+    callStream<AgentEvent>(
+      "chat_stream_global",
+      { sessionId, prompt },
+      onEvent,
+    ),
 };

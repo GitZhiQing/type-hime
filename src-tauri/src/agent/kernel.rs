@@ -220,6 +220,29 @@ pub async fn test_connection(
     Ok(resp.output().to_string())
 }
 
+/// 单次轻量补全（无工具、无历史）：会话自动标题等辅助调用。
+pub async fn one_shot_completion(
+    settings: &AppSettings,
+    preamble: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let provider = settings
+        .active()
+        .ok_or("尚未配置模型服务：请先在设置页添加并启用供应商")?;
+    let model = OpenAIConfig::new(provider.api_key.clone())
+        .with_base_url(provider.base_url.trim_end_matches('/').to_string())
+        .with_route(Route::Chat)
+        .client()
+        .chat(provider.default_model.clone());
+
+    let agent = AgentBuilder::new(model)
+        .preamble(preamble.to_string())
+        .build();
+
+    let resp = agent.prompt(prompt).await.map_err(|e| format!("{e}"))?;
+    Ok(resp.output().to_string())
+}
+
 /// 自动获取模型列表：GET {base_url}/models（OpenAI 兼容）。
 pub async fn list_models(base_url: &str, api_key: &str) -> Result<Vec<String>, String> {
     let url = format!("{}/models", base_url.trim_end_matches('/'));

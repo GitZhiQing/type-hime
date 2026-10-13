@@ -18,7 +18,7 @@ interface StreamingState {
 }
 
 export function ChatPane({ workPath }: ChatProps) {
-  const [sessions, setSessions] = useState<{ id: string; preview: string }[]>([]);
+  const [sessions, setSessions] = useState<{ id: string; title: string }[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [input, setInput] = useState("");
@@ -28,10 +28,10 @@ export function ChatPane({ workPath }: ChatProps) {
 
   async function refreshSessions(preferId?: string) {
     const list = await api.listSessions(workPath);
-    setSessions(list.map(([id, , preview]) => ({ id, preview })));
+    setSessions(list.map((m) => ({ id: m.id, title: m.title })));
     if (preferId) return;
     if (sessionId === null && list.length > 0) {
-      openSession(list[0][0]);
+      openSession(list[0].id);
     }
   }
 
@@ -129,9 +129,9 @@ export function ChatPane({ workPath }: ChatProps) {
                 "max-w-40 truncate rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent",
                 sessionId === s.id && "bg-accent text-accent-foreground"
               )}
-              title={s.preview}
+              title={s.title}
             >
-              {s.preview || "（空）"}
+              {s.title || "（空）"}
             </button>
           ))}
         </div>

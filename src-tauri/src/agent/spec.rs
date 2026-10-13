@@ -47,6 +47,26 @@ pub fn chat_spec() -> AgentSpec {
     }
 }
 
+pub const GLOBAL_CHAT_SECTIONS: &str = r#"你是 type-hime 的通用对话助手（当前未打开任何作品，没有作品文件上下文）。
+
+你的职责：
+- 与作者自由交流：找灵感、头脑风暴、人物/情节构思、写作问答。
+- 可以讨论任何话题，不限于当前项目；用户粘贴的内容照常分析。
+- 没有文件工具，也不要假装能读写文件；涉及具体作品文件时建议用户进入该作品的会话。
+- 中文回答，直接给观点和方案，不说套话。"#;
+
+/// 全局对话 Agent（无作品上下文，rail「对话」页）：纯对话，无文件工具。
+pub fn global_chat_spec() -> AgentSpec {
+    AgentSpec {
+        id: "chat".to_string(),
+        sections: vec![("identity".to_string(), GLOBAL_CHAT_SECTIONS.to_string())],
+        tools: Vec::new(),
+        skills: Vec::new(),
+        model_override: None,
+        max_turns: 12,
+    }
+}
+
 pub const WRITER_IDENTITY: &str = r#"你是一位成熟的中文网文作者（执笔者），按流水线任务产出稿件。
 
 铁律：

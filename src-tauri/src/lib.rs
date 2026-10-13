@@ -12,7 +12,7 @@ pub mod review;
 pub mod settings;
 pub mod works;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tauri::ipc::Channel;
@@ -21,11 +21,9 @@ use tauri::{AppHandle, Emitter, State};
 use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
-use agent::spec::{chat_spec, ledger_spec, reviewer_spec, writer_spec, AgentSpec};
-use agent::tools::ToolCtx;
 use lore::{SettingMeta, Visibility};
 use pipeline::{PipelineView, Stage};
-use review::{Proposal, ReviewQueue, SharedQueue};
+use review::{Proposal, SharedQueue};
 use settings::{ProviderProfile, SettingsView};
 use works::{TreeNode, WorkSummary};
 
@@ -252,16 +250,57 @@ fn preview_assembly(
 }
 
 // ---------------------------------------------------------------------------
-// 会话（通用对话 agent，中栏会话流）
+// 会话（通用对话 agent；作品会话 + 全局对话会话，REFACTOR R1）
 
 #[tauri::command]
-fn list_sessions(work_path: String) -> Result<Vec<(String, String, String)>, String> {
-    session::list_sessions(&PathBuf::from(work_path))
+fn list_sessions(work_path: String) -> Result<Vec<session::SessionMeta>, String> {
+    session::list_sessions(&session::SessionStore::Work(PathBuf::from(work_path)))
+}
+
+#[tauri::command]
+fn rename_session(work_path: String, session_id: String, title: String) -> Result<(), String> {
+    session::rename_session(
+        &session::SessionStore::Work(PathBuf::from(work_path)),
+        &session_id,
+        &title,
+    )
+}
+
+#[tauri::command]
+fn delete_session(work_path: String, session_id: String) -> Result<(), String> {
+    session::delete_session(
+        &session::SessionStore::Work(PathBuf::from(work_path)),
+        &session_id,
+    )
 }
 
 #[tauri::command]
 fn load_session_view(work_path: String, session_id: String) -> Result<Vec<session::MessageView>, String> {
-    let s = session::load_session(&PathBuf::from(work_path), &session_id)?;
+    let s = session::load_session(
+        &session::SessionStore::Work(PathBuf::from(work_path)),
+        &session_id,
+    )?;
+    Ok(s.messages.iter().map(session::message_view).collect())
+}
+
+#[tauri::command]
+fn list_sessions_global() -> Result<Vec<session::SessionMeta>, String> {
+    session::list_sessions(&session::SessionStore::Global)
+}
+
+#[tauri::command]
+fn rename_session_global(session_id: String, title: String) -> Result<(), String> {
+    session::rename_session(&session::SessionStore::Global, &session_id, &title)
+}
+
+#[tauri::command]
+fn delete_session_global(session_id: String) -> Result<(), String> {
+    session::delete_session(&session::SessionStore::Global, &session_id)
+}
+
+#[tauri::command]
+fn load_session_view_global(session_id: String) -> Result<Vec<session::MessageView>, String> {
+    let s = session::load_session(&session::SessionStore::Global, &session_id)?;
     Ok(s.messages.iter().map(session::message_view).collect())
 }
 
@@ -282,6 +321,19 @@ async fn chat_stream(
         let _ = app2.emit("review:new", p);
     });
     flows::chat_flow(&queue.0, work_path, session_id, prompt, sink, prop).await
+}
+
+/// 全局对话（rail「对话」页）：无作品上下文，无提议。
+#[tauri::command]
+async fn chat_stream_global(
+    session_id: String,
+    prompt: String,
+    on_event: Channel<AgentEvent>,
+) -> Result<(), String> {
+    let sink: flows::EventSink = Arc::new(move |ev| {
+        let _ = on_event.send(ev);
+    });
+    flows::chat_flow_global(session_id, prompt, sink).await
 }
 
 // ---------------------------------------------------------------------------
@@ -542,8 +594,15 @@ pub fn run() {
             preview_assembly,
             // 会话
             list_sessions,
+            rename_session,
+            delete_session,
             load_session_view,
+            list_sessions_global,
+            rename_session_global,
+            delete_session_global,
+            load_session_view_global,
             chat_stream,
+            chat_stream_global,
             // 生成流水线
             generate_artifact,
             propose_ledger_update,
