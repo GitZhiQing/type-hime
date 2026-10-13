@@ -5,10 +5,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "cn";
 import { toast } from "sonner";
-import { Loader2, MessageSquarePlus, Send, Wrench } from "lucide-react";
+import { Loader2, Send, Wrench } from "lucide-react";
 
 interface ChatProps {
-  workPath: string;
+  /** work = 项目内会话（有文件工具）；global = 全局对话（无作品上下文） */
+  scope: "work" | "global";
+  /** scope=work 时必填 */
+  workPath?: string;
+  sessionId: string | null;
+  /** 当前无会话时由父层创建并返回新会话 id */
+  onNewSession: () => string;
+  /** 一轮对话完成后回调（父层刷新会话列表，自动标题已落盘） */
+  onTurnDone: () => void;
 }
 
 /** 一条流式中的消息：文本增量 + 工具调用轨迹 */
@@ -17,53 +25,43 @@ interface StreamingState {
   toolTrace: { name: string; kind: "call" | "result" }[];
 }
 
-export function ChatPane({ workPath }: ChatProps) {
-  const [sessions, setSessions] = useState<{ id: string; title: string }[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+/** 聊天主面板（R1 起不含会话管理，会话列表由父层持有）。 */
+export function ChatPane({
+  scope,
+  workPath,
+  sessionId,
+  onNewSession,
+  onTurnDone,
+}: ChatProps) {
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState<StreamingState | null>(null);
   const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  async function refreshSessions(preferId?: string) {
-    const list = await api.listSessions(workPath);
-    setSessions(list.map((m) => ({ id: m.id, title: m.title })));
-    if (preferId) return;
-    if (sessionId === null && list.length > 0) {
-      openSession(list[0].id);
-    }
-  }
-
-  async function openSession(id: string) {
-    setSessionId(id);
-    setStreaming(null);
-    const msgs = await api.loadSessionView(workPath, id);
-    setMessages(msgs);
-  }
+  const isWork = scope === "work" && !!workPath;
 
   useEffect(() => {
-    refreshSessions();
+    setStreaming(null);
+    if (!sessionId) {
+      setMessages([]);
+      return;
+    }
+    const p = isWork
+      ? api.loadSessionView(workPath!, sessionId)
+      : api.loadSessionViewGlobal(sessionId);
+    p.then(setMessages).catch(() => setMessages([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workPath]);
+  }, [scope, workPath, sessionId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming?.text]);
 
-  function newSession() {
-    const id = `s${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 6)}`;
-    setSessionId(id);
-    setMessages([]);
-    setStreaming(null);
-    refreshSessions(id);
-    return id;
-  }
-
   async function send() {
     const prompt = input.trim();
     if (!prompt || busy) return;
-    const sid = sessionId ?? newSession();
+    const sid = sessionId ?? onNewSession();
     setInput("");
     setBusy(true);
     setMessages((m) => [...m, { role: "user", text: prompt }]);
@@ -89,12 +87,18 @@ export function ChatPane({ workPath }: ChatProps) {
     };
 
     try {
-      await api.chatStream(workPath, sid, prompt, channel);
+      if (isWork) {
+        await api.chatStream(workPath!, sid, prompt, channel);
+      } else {
+        await api.chatStreamGlobal(sid, prompt, channel);
+      }
       // 落盘完成后从后端拉权威视图
-      const msgs = await api.loadSessionView(workPath, sid);
-      setMessages(msgs);
+      const view = isWork
+        ? await api.loadSessionView(workPath!, sid)
+        : await api.loadSessionViewGlobal(sid);
+      setMessages(view);
       setStreaming(null);
-      refreshSessions(sid);
+      onTurnDone();
     } catch (e) {
       setStreaming(null);
       toast.error(String(e));
@@ -105,39 +109,7 @@ export function ChatPane({ workPath }: ChatProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
-        <span className="text-xs font-medium text-muted-foreground">会话</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto h-7 px-2 text-xs"
-          onClick={newSession}
-        >
-          <MessageSquarePlus data-icon="inline-start" />
-          新会话
-        </Button>
-      </div>
-
-      {sessions.length > 0 && (
-        <div className="flex shrink-0 flex-wrap gap-1 border-b px-2 py-1.5">
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => openSession(s.id)}
-              className={cn(
-                "max-w-40 truncate rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent",
-                sessionId === s.id && "bg-accent text-accent-foreground"
-              )}
-              title={s.title}
-            >
-              {s.title || "（空）"}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-3 p-3">
           {messages.map((m, i) => (
             <ChatBubble key={i} role={m.role} text={m.text} />
@@ -166,8 +138,10 @@ export function ChatPane({ workPath }: ChatProps) {
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" /> 连接模型…
                 </>
-              ) : (
+              ) : isWork ? (
                 "向写作助手提问：设定推演 / 情节排查 / 头脑风暴"
+              ) : (
+                "找灵感、头脑风暴、写作问答（无作品上下文）"
               )}
             </div>
           )}

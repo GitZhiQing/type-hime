@@ -10,6 +10,7 @@ import {
 import { ResourceTree } from "@/components/ResourceTree";
 import { EditorPane } from "@/components/EditorPane";
 import { ChatPane } from "@/components/ChatPane";
+import { SessionList } from "@/components/SessionList";
 import { GeneratePane } from "@/components/GeneratePane";
 import { StageBar } from "@/components/StageBar";
 import { DiffPane } from "@/components/DiffPane";
@@ -47,7 +48,6 @@ import {
   History,
   ArrowLeft,
   RefreshCw,
-  Settings,
   Sparkles,
 } from "lucide-react";
 
@@ -71,8 +71,17 @@ export function Workbench() {
   const [usage, setUsage] = useState<{ input_tokens: number; output_tokens: number } | null>(
     null,
   );
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionRefresh, setSessionRefresh] = useState(0);
 
   const workPath = work?.path ?? "";
+
+  /** 新建会话：生成 id、设为当前并返回（R1：会话状态上移到页面层） */
+  function createSession() {
+    const id = `s${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 6)}`;
+    setSessionId(id);
+    return id;
+  }
 
   const refresh = useCallback(async () => {
     if (!workPath) return;
@@ -177,15 +186,6 @@ export function Workbench() {
           <RefreshCw data-icon="inline-start" />
           刷新
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2"
-          onClick={() => navigate("/settings")}
-          aria-label="设置"
-        >
-          <Settings className="size-4" />
-        </Button>
       </header>
 
       {pipeline && (
@@ -193,88 +193,96 @@ export function Workbench() {
       )}
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
+        {/* 左栏（R1 过渡形态）：会话列表（上）+ 资源树/git（下）；R5 资源树移入制品面板 */}
         <ResizablePanel defaultSize={22} minSize={14}>
           <aside className="flex h-full flex-col">
-            <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs font-medium text-muted-foreground">
-              <BookOpen className="size-3.5" />
-              资源树
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto h-7 px-2 text-xs"
-                onClick={() => setLoreOpen(true)}
-              >
-                <Sparkles data-icon="inline-start" />
-                新设定
-              </Button>
+            <div className="flex h-[45%] min-h-0 flex-col border-b">
+              <SessionList
+                scope="work"
+                workPath={workPath}
+                sessionId={sessionId}
+                onSelect={setSessionId}
+                onNew={createSession}
+                refreshKey={sessionRefresh}
+              />
             </div>
-            <ScrollArea className="flex-1">
-              {tree ? (
-                <div className="p-1">
-                  <ResourceTree
-                    node={tree}
-                    selected={selected?.path ?? null}
-                    onSelect={setSelected}
-                    onAction={handleAction}
-                    hiddenPaths={
-                      new Set(
-                        settings
-                          .filter((s) => s.visibility === "hidden")
-                          .map((s) => s.path),
-                      )
-                    }
-                  />
-                </div>
-              ) : (
-                <div className="p-3 text-xs text-muted-foreground">加载中…</div>
-              )}
-            </ScrollArea>
-            <div className="shrink-0 border-t">
-              <div className="flex h-9 items-center gap-2 border-b px-3 text-xs font-medium text-muted-foreground">
-                <History className="size-3.5" />
-                git 历史
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs font-medium text-muted-foreground">
+                <BookOpen className="size-3.5" />
+                资源树
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-7 px-2 text-xs"
+                  onClick={() => setLoreOpen(true)}
+                >
+                  <Sparkles data-icon="inline-start" />
+                  新设定
+                </Button>
               </div>
-              <ScrollArea className="h-32">
-                <div className="flex flex-col gap-0.5 p-2 font-mono text-[11px] text-muted-foreground">
-                  {log.map((line, i) => (
-                    <span key={i} className="truncate" title={line}>
-                      {line}
-                    </span>
-                  ))}
-                </div>
+              <ScrollArea className="min-h-0 flex-1">
+                {tree ? (
+                  <div className="p-1">
+                    <ResourceTree
+                      node={tree}
+                      selected={selected?.path ?? null}
+                      onSelect={setSelected}
+                      onAction={handleAction}
+                      hiddenPaths={
+                        new Set(
+                          settings
+                            .filter((s) => s.visibility === "hidden")
+                            .map((s) => s.path),
+                        )
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div className="p-3 text-xs text-muted-foreground">加载中…</div>
+                )}
               </ScrollArea>
+              <div className="shrink-0 border-t">
+                <div className="flex h-9 items-center gap-2 border-b px-3 text-xs font-medium text-muted-foreground">
+                  <History className="size-3.5" />
+                  git 历史
+                </div>
+                <ScrollArea className="h-32">
+                  <div className="flex flex-col gap-0.5 p-2 font-mono text-[11px] text-muted-foreground">
+                    {log.map((line, i) => (
+                      <span key={i} className="truncate" title={line}>
+                        {line}
+                      </span>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
             </div>
           </aside>
         </ResizablePanel>
 
         <ResizableHandle withHandle />
 
+        {/* 中栏：聊天主操作面（R1 起独占，生成按钮降级到右栏过渡 Tab，R5 退役） */}
         <ResizablePanel defaultSize={44} minSize={24}>
-          <Tabs defaultValue="chat" className="flex h-full flex-col">
-            <TabsList className="m-2 grid w-auto grid-cols-2 self-start">
-              <TabsTrigger value="chat">对话</TabsTrigger>
-              <TabsTrigger value="generate">生成</TabsTrigger>
-            </TabsList>
-            <TabsContent value="chat" className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden">
-              <ChatPane workPath={workPath} />
-            </TabsContent>
-            <TabsContent
-              value="generate"
-              className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
-            >
-              <GeneratePane workPath={workPath} onProposal={refresh} />
-            </TabsContent>
-          </Tabs>
+          <ChatPane
+            scope="work"
+            workPath={workPath}
+            sessionId={sessionId}
+            onNewSession={createSession}
+            onTurnDone={() => setSessionRefresh((k) => k + 1)}
+          />
         </ResizablePanel>
 
         <ResizableHandle withHandle />
 
+        {/* 右栏：制品/审阅/装配 + 生成（过渡 Tab，R5 移除） */}
         <ResizablePanel defaultSize={34} minSize={18}>
           <Tabs defaultValue="editor" className="flex h-full flex-col">
-            <TabsList className="m-2 grid w-auto grid-cols-3 self-start">
+            <TabsList className="m-2 grid w-auto grid-cols-4 self-start">
               <TabsTrigger value="editor">编辑器</TabsTrigger>
               <TabsTrigger value="review">审阅</TabsTrigger>
               <TabsTrigger value="assembly">装配</TabsTrigger>
+              <TabsTrigger value="generate">生成</TabsTrigger>
             </TabsList>
             <TabsContent value="editor" className="mt-0 flex-1 data-[state=inactive]:hidden">
               <EditorPane
@@ -288,6 +296,9 @@ export function Workbench() {
             </TabsContent>
             <TabsContent value="assembly" className="mt-0 flex-1 data-[state=inactive]:hidden">
               <AssemblyPane workPath={workPath} />
+            </TabsContent>
+            <TabsContent value="generate" className="mt-0 flex-1 data-[state=inactive]:hidden">
+              <GeneratePane workPath={workPath} onProposal={refresh} />
             </TabsContent>
           </Tabs>
         </ResizablePanel>
