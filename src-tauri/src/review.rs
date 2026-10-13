@@ -23,6 +23,10 @@ pub struct Proposal {
     pub new_content: String,
     /// 是否新建文件
     pub is_new_file: bool,
+    /// 必须人工审阅（R4 · D32：触及可见性 frontmatter 的提议永不自动应用；
+    /// 旧档无此字段按 false 读取）
+    #[serde(default)]
+    pub requires_review: bool,
     pub created_at: String,
 }
 
@@ -78,6 +82,21 @@ impl ReviewQueue {
         reason: String,
         is_new_file: bool,
     ) -> Proposal {
+        self.push_with_review_flag(work_path, rel_path, old_content, new_content, reason, is_new_file, false)
+    }
+
+    /// 同 push，附带「必须人工审阅」标记（R4：可见性变更等永久留人提议）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_with_review_flag(
+        &mut self,
+        work_path: String,
+        rel_path: String,
+        old_content: &str,
+        new_content: String,
+        reason: String,
+        is_new_file: bool,
+        requires_review: bool,
+    ) -> Proposal {
         self.counter += 1;
         let diff = unified_diff(old_content, &new_content, &rel_path);
         let p = Proposal {
@@ -88,6 +107,7 @@ impl ReviewQueue {
             reason,
             new_content,
             is_new_file,
+            requires_review,
             created_at: crate::works::now_iso(),
         };
         self.queue.push(p.clone());

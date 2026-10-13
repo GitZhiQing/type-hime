@@ -76,6 +76,28 @@ pub fn pattern_matches(pattern: &str, subject: &str) -> bool {
     }
 }
 
+/// 受保护的应用控制文件（R4 · D32 硬闸）：任何档位不得经提议通道改动。
+/// 权限/项目状态/会话存档都在应用层管理，避免 agent 自改控制面对红线提权。
+pub fn protected_control_path(rel_path: &str) -> bool {
+    let p = rel_path.trim().trim_start_matches("./");
+    p == "project.json" || p == "permissions.json" || p.starts_with(".sessions/")
+}
+
+/// 提议是否触及可见性 frontmatter（`visibility:` / `open_at_vol:` 行变化）。
+/// 命中 → 该提议永不自动应用（进人工队列；完全访问档也如此，D32）。
+pub fn touches_visibility(old: &str, new: &str) -> bool {
+    let pick = |t: &str| -> Vec<String> {
+        t.lines()
+            .filter(|l| {
+                let l = l.trim_start();
+                l.starts_with("visibility:") || l.starts_with("open_at_vol:")
+            })
+            .map(|l| l.trim().to_string())
+            .collect()
+    };
+    pick(old) != pick(new)
+}
+
 /// 解析生效档位：更具体 pattern 的覆盖优先于工具级覆盖，同具体度先声明者胜；无命中回落会话档位。
 pub fn resolve(
     config: &PermissionConfig,
@@ -190,5 +212,28 @@ mod tests {
             serde_json::from_str(r#"{"tool":"bash","pattern":"git log*","mode":"full_access"}"#)
                 .unwrap();
         assert_eq!(one.mode, PermissionMode::FullAccess);
+    }
+
+    #[test]
+    fn hard_limits() {
+        // 控制文件硬闸
+        assert!(protected_control_path("project.json"));
+        assert!(protected_control_path("permissions.json"));
+        assert!(protected_control_path("./permissions.json"));
+        assert!(protected_control_path(".sessions/s1.json"));
+        assert!(!protected_control_path("ledger/账本.md"));
+        assert!(!protected_control_path("settings/characters/林晚.md"));
+
+        // 可见性 frontmatter 变更检测
+        let old = "---\nname: 黑剑来历\nvisibility: hidden\nopen_at_vol: 2\n---\n\n正文";
+        assert!(!touches_visibility(old, old), "无变化不算触及");
+        let flipped = "---\nname: 黑剑来历\nvisibility: visible\nopen_at_vol: 2\n---\n\n正文";
+        assert!(touches_visibility(old, flipped), "可见性翻转应命中");
+        let vol = "---\nname: 黑剑来历\nvisibility: hidden\nopen_at_vol: 3\n---\n\n正文";
+        assert!(touches_visibility(old, vol), "开放卷调整应命中");
+        let body_only = "---\nname: 黑剑来历\nvisibility: hidden\nopen_at_vol: 2\n---\n\n改过的正文";
+        assert!(!touches_visibility(old, body_only), "仅正文改动不应命中");
+        // 新建文件带可见性 frontmatter → 命中（保守：agent 不得静默设定可见性）
+        assert!(touches_visibility("", old));
     }
 }

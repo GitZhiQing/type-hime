@@ -247,6 +247,13 @@ impl Tool for ProposeEdit {
         _ctx: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
+        // 控制文件硬闸（D32）：权限/项目状态/会话存档不经提议通道改动
+        if crate::permissions::protected_control_path(&args.path) {
+            return Ok(format!(
+                "[拒绝] {} 是应用控制文件（权限/项目状态/会话存档），不通过提议通道修改；如需调整请在界面操作。",
+                args.path
+            ));
+        }
         if let Some(expect) = &self.ctx.expect {
             if let Err(msg) = validate_content(&args.new_content, expect) {
                 return Ok(msg);
@@ -254,23 +261,29 @@ impl Tool for ProposeEdit {
         }
         Ok(match crate::works::read_file(&self.ctx.work_root, &args.path) {
             Ok(old) => {
+                // 可见性硬闸（D32）：触及 visibility/open_at_vol 的提议永久留人（不自动应用）
+                let requires_review =
+                    crate::permissions::touches_visibility(&old, &args.new_content);
                 let p = self
                     .ctx
                     .queue
                     .lock()
                     .unwrap()
-                    .push(
+                    .push_with_review_flag(
                         self.ctx.work_root.to_string_lossy().into_owned(),
                         args.path.clone(),
                         &old,
                         args.new_content,
                         args.reason,
                         false,
+                        requires_review,
                     );
                 (self.ctx.on_proposal)(&p);
                 format!(
-                    "已生成修改提议 #{}（{}），等待作者在 diff 审阅中处理；在作者处理前不要重复提交同一修改。",
-                    p.id, p.rel_path
+                    "已生成修改提议 #{}（{}）{}，等待作者在 diff 审阅中处理；在作者处理前不要重复提交同一修改。",
+                    p.id,
+                    p.rel_path,
+                    if requires_review { "（含可见性变更，必须人工审阅）" } else { "" }
                 )
             }
             Err(e) => format!("[无法提议：读取 {path} 失败：{e}]", path = args.path),
@@ -278,7 +291,7 @@ impl Tool for ProposeEdit {
     }
 
     fn description(&self) -> String {
-        "提议修改作品中的既有文件：给出修改后全文与理由，生成 diff 供作者人审。不会直接写盘——接受与否由作者决定。".to_string()
+        "提议修改作品中的既有文件：给出修改后全文与理由，生成 diff 供作者人审。不会直接写盘——接受与否由作者决定。project.json/permissions.json/.sessions 等控制文件不可修改。".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -315,6 +328,13 @@ impl Tool for ProposeWrite {
         _ctx: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
+        // 控制文件硬闸（D32）
+        if crate::permissions::protected_control_path(&args.path) {
+            return Ok(format!(
+                "[拒绝] {} 是应用控制文件（权限/项目状态/会话存档），不通过提议通道创建；如需调整请在界面操作。",
+                args.path
+            ));
+        }
         if let Some(expect) = &self.ctx.expect {
             if let Err(msg) = validate_content(&args.content, expect) {
                 return Ok(msg);
@@ -327,23 +347,28 @@ impl Tool for ProposeWrite {
                 args.path
             ));
         }
-        let p = self.ctx.queue.lock().unwrap().push(
+        // 可见性硬闸（D32）：新文件带 visibility/open_at_vol frontmatter 视同可见性设置
+        let requires_review = crate::permissions::touches_visibility("", &args.content);
+        let p = self.ctx.queue.lock().unwrap().push_with_review_flag(
             self.ctx.work_root.to_string_lossy().into_owned(),
             args.path.clone(),
             "",
             args.content,
             args.reason,
             true,
+            requires_review,
         );
         (self.ctx.on_proposal)(&p);
         Ok(format!(
-            "已生成新建提议 #{}（{}），等待作者在 diff 审阅中处理。",
-            p.id, p.rel_path
+            "已生成新建提议 #{}（{}）{}，等待作者在 diff 审阅中处理。",
+            p.id,
+            p.rel_path,
+            if requires_review { "（含可见性设置，必须人工审阅）" } else { "" }
         ))
     }
 
     fn description(&self) -> String {
-        "提议新建文件（如章节、设定条目）：给出全文与理由，供作者人审。不会直接写盘。".to_string()
+        "提议新建文件（如章节、设定条目）：给出全文与理由，供作者人审。不会直接写盘。project.json/permissions.json/.sessions 等控制文件不可创建。".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -381,15 +406,16 @@ impl Tool for Bash {
         _ctx: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        // 1) 守卫：写产物/链式/白名单（红线：写产物一律引导 propose_*）
-        if let Err(msg) = crate::agent::bash::check_command(&args.command) {
+        // 1) 守卫：写产物/链式/白名单（内置 + permissions.json 两层扩展；红线：一律引导 propose_*）
+        let policy = crate::agent::bash::load_policy(&self.ctx.work_root);
+        if let Err(msg) = crate::agent::bash::check_command(&args.command, &policy) {
             return Ok(format!("[命令被拦截] {msg}"));
         }
         // 2) 权限：变更前确认档挂起等 UI 决策；完全访问档白名单直通（R4-① 档位模型；
         //    覆盖表可按命令模式覆盖，如「git log* → 完全访问」）
         let mode = self.ctx.resolve_mode("bash", Some(&args.command));
         if mode == crate::permissions::PermissionMode::FullAccess {
-            return self.execute_command(args.command).await;
+            return self.execute_command(args.command, policy).await;
         }
         let detail = format!(
             "工作目录：{}\n请求原因：{}",
@@ -410,7 +436,7 @@ impl Tool for Bash {
                 args.command
             ));
         }
-        self.execute_command(args.command).await
+        self.execute_command(args.command, policy).await
     }
 
     fn description(&self) -> String {
@@ -425,12 +451,16 @@ impl Tool for Bash {
 
 impl Bash {
     /// 执行（无 shell 直执行；阻塞进程放 spawn_blocking，30s 超时）。
-    async fn execute_command(&self, command: String) -> Result<String, std::convert::Infallible> {
+    async fn execute_command(
+        &self,
+        command: String,
+        policy: crate::agent::bash::BashPolicy,
+    ) -> Result<String, std::convert::Infallible> {
         let root = self.ctx.work_root.clone();
         let text = match tokio::time::timeout(
             std::time::Duration::from_secs(BASH_TIMEOUT_SECS),
             tokio::task::spawn_blocking(move || {
-                crate::agent::bash::run_command(&root, &command, 8000)
+                crate::agent::bash::run_command(&root, &command, 8000, &policy)
             }),
         )
         .await
