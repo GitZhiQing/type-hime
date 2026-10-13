@@ -55,6 +55,30 @@ export interface MessageView {
   text: string;
 }
 
+export type Stage =
+  | "settings"
+  | "outline"
+  | "volume_outline"
+  | "chapter_outline"
+  | "chapters"
+  | "review";
+
+export interface GateInfo {
+  stage: Stage;
+  label: string;
+  enterable: boolean;
+  blocked_by: string | null;
+  confirmed: boolean;
+  current: boolean;
+}
+
+export interface PipelineView {
+  stage: Stage;
+  stage_label: string;
+  confirmed: Stage[];
+  gates: GateInfo[];
+}
+
 export const api = {
   getWorksRoot: () => invoke<string>("get_works_root"),
   listWorks: () => invoke<WorkSummary[]>("list_works"),
@@ -102,6 +126,18 @@ export const api = {
     invoke<string[]>("list_models", { baseUrl, apiKey }),
   setAgentModelOverride: (agentId: string, model: string | null) =>
     invoke<void>("set_agent_model_override", { agentId, model }),
+
+  // 流水线
+  getPipeline: (workPath: string) =>
+    invoke<PipelineView>("get_pipeline", { workPath }),
+  pipelineEnter: (workPath: string, stage: Stage) =>
+    invoke<PipelineView>("pipeline_enter", { workPath, stage }),
+  pipelineConfirm: (workPath: string, stage: Stage) =>
+    invoke<PipelineView>("pipeline_confirm", { workPath, stage }),
+  pipelineSkip: (workPath: string, stage: Stage) =>
+    invoke<PipelineView>("pipeline_skip", { workPath, stage }),
+  pipelineRedo: (workPath: string, stage: Stage) =>
+    invoke<PipelineView>("pipeline_redo", { workPath, stage }),
 
   // 会话
   listSessions: (workPath: string) =>

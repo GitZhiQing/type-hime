@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, TreeNode, WorkSummary } from "@/lib/tauri";
+import { api, PipelineView, TreeNode, WorkSummary } from "@/lib/tauri";
 import { ResourceTree } from "@/components/ResourceTree";
 import { EditorPane } from "@/components/EditorPane";
 import { ChatPane } from "@/components/ChatPane";
+import { StageBar } from "@/components/StageBar";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -22,18 +23,21 @@ export function Workbench() {
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [selected, setSelected] = useState<TreeNode | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [pipeline, setPipeline] = useState<PipelineView | null>(null);
 
   const workPath = work?.path ?? "";
 
   const refresh = useCallback(async () => {
     if (!workPath) return;
     try {
-      const [t, l] = await Promise.all([
+      const [t, l, p] = await Promise.all([
         api.readTree(workPath),
         api.gitLog(workPath, 15),
+        api.getPipeline(workPath),
       ]);
       setTree(t);
       setLog(l);
+      setPipeline(p);
     } catch (e) {
       toast.error(String(e));
     }
@@ -98,6 +102,10 @@ export function Workbench() {
           <Settings className="size-4" />
         </Button>
       </header>
+
+      {pipeline && (
+        <StageBar workPath={workPath} pipeline={pipeline} onChange={setPipeline} />
+      )}
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
         <ResizablePanel defaultSize={22} minSize={14}>

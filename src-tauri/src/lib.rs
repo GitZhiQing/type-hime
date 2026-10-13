@@ -1,5 +1,6 @@
 pub mod agent;
 mod git;
+mod pipeline;
 pub mod settings;
 pub mod works;
 
@@ -11,6 +12,7 @@ use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
 use agent::spec::{chat_spec, AgentSpec};
+use pipeline::{PipelineState, PipelineView, Stage};
 use settings::{ProviderProfile, SettingsView};
 use works::{TreeNode, WorkSummary};
 
@@ -125,6 +127,52 @@ fn set_agent_model_override(agent_id: String, model: Option<String>) -> Result<(
 }
 
 // ---------------------------------------------------------------------------
+// 流水线状态机
+
+#[tauri::command]
+fn get_pipeline(work_path: String) -> Result<PipelineView, String> {
+    let dir = PathBuf::from(work_path);
+    Ok(pipeline::load_pipeline(&dir)?.to_view(&dir))
+}
+
+#[tauri::command]
+fn pipeline_enter(work_path: String, stage: Stage) -> Result<PipelineView, String> {
+    let dir = PathBuf::from(work_path);
+    let mut p = pipeline::load_pipeline(&dir)?;
+    p.enter(stage, &dir)?;
+    pipeline::save_pipeline(&dir, &p)?;
+    Ok(p.to_view(&dir))
+}
+
+#[tauri::command]
+fn pipeline_confirm(work_path: String, stage: Stage) -> Result<PipelineView, String> {
+    let dir = PathBuf::from(work_path);
+    let mut p = pipeline::load_pipeline(&dir)?;
+    p.confirm(stage, &dir)?;
+    pipeline::save_pipeline(&dir, &p)?;
+    Ok(p.to_view(&dir))
+}
+
+/// 显式跳过（不校验产物，记录确认）。
+#[tauri::command]
+fn pipeline_skip(work_path: String, stage: Stage) -> Result<PipelineView, String> {
+    let dir = PathBuf::from(work_path);
+    let mut p = pipeline::load_pipeline(&dir)?;
+    p.skip_confirmed(stage);
+    pipeline::save_pipeline(&dir, &p)?;
+    Ok(p.to_view(&dir))
+}
+
+#[tauri::command]
+fn pipeline_redo(work_path: String, stage: Stage) -> Result<PipelineView, String> {
+    let dir = PathBuf::from(work_path);
+    let mut p = pipeline::load_pipeline(&dir)?;
+    p.redo(stage);
+    pipeline::save_pipeline(&dir, &p)?;
+    Ok(p.to_view(&dir))
+}
+
+// ---------------------------------------------------------------------------
 // 会话（通用对话 agent，中栏会话流）
 
 #[tauri::command]
@@ -192,6 +240,12 @@ pub fn run() {
             test_provider,
             list_models,
             set_agent_model_override,
+            // 流水线
+            get_pipeline,
+            pipeline_enter,
+            pipeline_confirm,
+            pipeline_skip,
+            pipeline_redo,
             // 会话
             list_sessions,
             load_session_view,
