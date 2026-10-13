@@ -236,6 +236,9 @@ struct ProjectMeta {
     pipeline: PipelineState,
     #[serde(default)]
     assembly_prefs: AssemblyPrefs,
+    /// 权限覆盖表（R4 · D30：工具级/命令模式级档位覆盖；旧档无字段按空表）
+    #[serde(default)]
+    permission: crate::permissions::PermissionConfig,
 }
 
 /// 装配偏好（R3：上下文面板控制，持久化于 project.json；生成流读取后应用）。
@@ -288,6 +291,31 @@ pub fn save_assembly_prefs(work_dir: &Path, prefs: &AssemblyPrefs) -> Result<(),
     let mut meta: ProjectMeta =
         serde_json::from_str(&raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
     meta.assembly_prefs = prefs.clone();
+    let out = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
+    std::fs::write(meta_path(work_dir), out).map_err(|e| format!("写入 project.json 失败：{e}"))
+}
+
+/// 权限覆盖表读取（R4：project.json 的 permission 字段；旧档无字段按空表）。
+pub fn load_permission_config(
+    work_dir: &Path,
+) -> Result<crate::permissions::PermissionConfig, String> {
+    let raw = std::fs::read_to_string(meta_path(work_dir))
+        .map_err(|e| format!("读取 project.json 失败：{e}"))?;
+    let meta: ProjectMeta =
+        serde_json::from_str(&raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
+    Ok(meta.permission)
+}
+
+/// 权限覆盖表保存。
+pub fn save_permission_config(
+    work_dir: &Path,
+    config: &crate::permissions::PermissionConfig,
+) -> Result<(), String> {
+    let raw = std::fs::read_to_string(meta_path(work_dir))
+        .map_err(|e| format!("读取 project.json 失败：{e}"))?;
+    let mut meta: ProjectMeta =
+        serde_json::from_str(&raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
+    meta.permission = config.clone();
     let out = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
     std::fs::write(meta_path(work_dir), out).map_err(|e| format!("写入 project.json 失败：{e}"))
 }

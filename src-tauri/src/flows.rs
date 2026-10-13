@@ -43,15 +43,8 @@ async fn run_and_save_session(
     on_event: &EventSink,
 ) -> Result<(), String> {
     let settings = kernel::current_settings()?;
-    let mut sess = session::load_session(store, &sess_id).unwrap_or(Session {
-        id: sess_id.clone(),
-        created_at: works::now_iso(),
-        title: None,
-        format_version: session::SESSION_FORMAT_VERSION,
-        messages: Vec::new(),
-        usage: None,
-        last_usage: None,
-    });
+    let mut sess = session::load_session(store, &sess_id)
+        .unwrap_or_else(|_| Session::new(sess_id.clone()));
     let history = sess.messages.clone();
     let sink = Arc::clone(on_event);
     let outcome = kernel::run(
@@ -136,11 +129,18 @@ pub async fn chat_flow(
     };
     let spec = chat_spec();
     let runner = chat_flow_runner(Arc::clone(queue), work_path.clone(), Arc::clone(&on_proposal));
+    // 权限上下文（R4-①）：会话档位（存会话档案）+ 作品覆盖表（project.json）
+    let store = SessionStore::Work(work_dir.clone());
+    let session_mode = session::load_session(&store, &session_id)
+        .map(|s| s.permission_mode)
+        .unwrap_or_default();
+    let perm_config = pipeline::load_permission_config(&work_dir).unwrap_or_default();
+    let permission = crate::permissions::PermissionContext::new(session_mode, perm_config);
     let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
         .approval(approval)
         .event_sink(Some(Arc::clone(&on_event)))
-        .flow_runner(Some(runner));
-    let store = SessionStore::Work(work_dir);
+        .flow_runner(Some(runner))
+        .permission(Some(permission));
     run_and_save_session(session_id.clone(), &store, Some(&tool_ctx), &spec, &prompt, &on_event)
         .await?;
     autotitle(&store, &session_id).await;
@@ -371,15 +371,7 @@ pub async fn generate_artifact_flow(
         assembly::render_prompt(&assembled)
     );
 
-    let sess = Session {
-        id: format!("gen-{target}-{volume:02}-{chapter}"),
-        created_at: works::now_iso(),
-        title: None,
-        format_version: session::SESSION_FORMAT_VERSION,
-        messages: Vec::new(),
-        usage: None,
-        last_usage: None,
-    };
+    let sess = Session::new(format!("gen-{target}-{volume:02}-{chapter}"));
     let sink = Arc::clone(&on_event);
     let outcome = kernel::run(
         &settings,
@@ -512,13 +504,10 @@ pub async fn review_flow(
     let report_text = outcome.text;
 
     let sess = Session {
-        id: format!("review-{mode}-{volume:02}-{chapter}"),
-        created_at: works::now_iso(),
-        title: None,
-        format_version: session::SESSION_FORMAT_VERSION,
         messages: outcome.messages,
         usage: outcome.usage,
         last_usage: outcome.usage,
+        ..Session::new(format!("review-{mode}-{volume:02}-{chapter}"))
     };
     let _ = session::save_session(&SessionStore::Work(work_dir.clone()), &sess);
 

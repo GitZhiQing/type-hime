@@ -99,6 +99,8 @@ pub struct ToolCtx {
     pub event_sink: Option<EventSink>,
     /// flow 执行器（R4：run_flow 工具；None=该上下文不支持流程编排）
     pub flow_runner: Option<FlowRunner>,
+    /// 权限上下文（R4：会话档位 + 作品覆盖表；None=按安全默认「变更前确认」处理）
+    pub permission: Option<crate::permissions::PermissionContext>,
 }
 
 impl ToolCtx {
@@ -116,6 +118,7 @@ impl ToolCtx {
             approval: None,
             event_sink: None,
             flow_runner: None,
+            permission: None,
         }
     }
 
@@ -141,6 +144,24 @@ impl ToolCtx {
     pub fn flow_runner(mut self, runner: Option<FlowRunner>) -> Self {
         self.flow_runner = runner;
         self
+    }
+
+    /// 设置权限上下文。
+    pub fn permission(mut self, permission: Option<crate::permissions::PermissionContext>) -> Self {
+        self.permission = permission;
+        self
+    }
+
+    /// 解析本次操作的生效档位（无权限上下文时按安全默认「变更前确认」）。
+    pub fn resolve_mode(
+        &self,
+        tool: &str,
+        subject: Option<&str>,
+    ) -> crate::permissions::PermissionMode {
+        self.permission
+            .as_ref()
+            .map(|p| p.resolve(tool, subject))
+            .unwrap_or_default()
     }
 }
 
@@ -364,7 +385,12 @@ impl Tool for Bash {
         if let Err(msg) = crate::agent::bash::check_command(&args.command) {
             return Ok(format!("[命令被拦截] {msg}"));
         }
-        // 2) 审批：变更前确认档挂起等 UI 决策（档位模型 R4-① 接入；Spike A 固定走审批路径）
+        // 2) 权限：变更前确认档挂起等 UI 决策；完全访问档白名单直通（R4-① 档位模型；
+        //    覆盖表可按命令模式覆盖，如「git log* → 完全访问」）
+        let mode = self.ctx.resolve_mode("bash", Some(&args.command));
+        if mode == crate::permissions::PermissionMode::FullAccess {
+            return self.execute_command(args.command).await;
+        }
         let detail = format!(
             "工作目录：{}\n请求原因：{}",
             self.ctx.work_root.display(),
@@ -384,9 +410,23 @@ impl Tool for Bash {
                 args.command
             ));
         }
-        // 3) 执行（无 shell 直执行；阻塞进程放 spawn_blocking）
+        self.execute_command(args.command).await
+    }
+
+    fn description(&self) -> String {
+        "执行只读 shell 命令查看仓库状态与历史（白名单：git 只读子命令 status/log/diff/show/branch/rev-parse 等；管道仅限只读过滤命令 grep/head/tail 等）。写产物/改动历史的命令会被拦截——作品文件修改请用 propose_edit/propose_write。执行前需要作者确认（完全访问档直通）。"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(BashArgs).to_value()
+    }
+}
+
+impl Bash {
+    /// 执行（无 shell 直执行；阻塞进程放 spawn_blocking，30s 超时）。
+    async fn execute_command(&self, command: String) -> Result<String, std::convert::Infallible> {
         let root = self.ctx.work_root.clone();
-        let command = args.command.clone();
         let text = match tokio::time::timeout(
             std::time::Duration::from_secs(BASH_TIMEOUT_SECS),
             tokio::task::spawn_blocking(move || {
@@ -403,15 +443,6 @@ impl Tool for Bash {
             ),
         };
         Ok(text)
-    }
-
-    fn description(&self) -> String {
-        "执行只读 shell 命令查看仓库状态与历史（白名单：git 只读子命令 status/log/diff/show/branch/rev-parse 等；管道仅限只读过滤命令 grep/head/tail 等）。写产物/改动历史的命令会被拦截——作品文件修改请用 propose_edit/propose_write。执行前需要作者确认。"
-            .to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        rig::schemars::schema_for!(BashArgs).to_value()
     }
 }
 

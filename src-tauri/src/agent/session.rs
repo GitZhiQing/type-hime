@@ -15,6 +15,22 @@ fn default_format_version() -> u32 {
     SESSION_FORMAT_VERSION
 }
 
+impl Session {
+    /// 新会话骨架（空消息、默认「变更前确认」档）。
+    pub fn new(id: String) -> Self {
+        Self {
+            id,
+            created_at: crate::works::now_iso(),
+            title: None,
+            format_version: SESSION_FORMAT_VERSION,
+            permission_mode: Default::default(),
+            messages: Vec::new(),
+            usage: None,
+            last_usage: None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Session {
     pub id: String,
@@ -25,6 +41,9 @@ pub struct Session {
     /// 存档格式版本（R4 inner facade：未来 rig 破坏性升级时按版本迁移）
     #[serde(default = "default_format_version")]
     pub format_version: u32,
+    /// 会话权限档位（R4 · D30：会话级决定；旧档无此字段按「变更前确认」）
+    #[serde(default)]
+    pub permission_mode: crate::permissions::PermissionMode,
     pub messages: Vec<Message>,
     /// 会话全部轮次累计用量（成本参考）
     #[serde(default)]
@@ -42,6 +61,8 @@ pub struct SessionMeta {
     /// 首条用户消息预览（搜索过滤的兜底字段）
     pub preview: String,
     pub created_at: String,
+    /// 权限档位（R4：前端输入框左下角下拉的当前值）
+    pub permission_mode: crate::permissions::PermissionMode,
 }
 
 /// 会话存储位置：作品内 .sessions/ 或全局 config 目录。
@@ -153,6 +174,7 @@ pub fn list_sessions(store: &SessionStore) -> Result<Vec<SessionMeta>, String> {
                         title,
                         preview,
                         created_at: s.created_at.clone(),
+                        permission_mode: s.permission_mode,
                     });
                 }
             }
@@ -180,6 +202,17 @@ pub fn delete_session(store: &SessionStore, id: &str) -> Result<(), String> {
         return Err(format!("会话 {id} 不存在"));
     }
     std::fs::remove_file(&path).map_err(|e| format!("删除会话失败：{e}"))
+}
+
+/// 设置会话权限档位（R4：输入框左下角下拉切换时调用）。
+pub fn set_permission_mode(
+    store: &SessionStore,
+    id: &str,
+    mode: crate::permissions::PermissionMode,
+) -> Result<(), String> {
+    let mut sess = load_session(store, id)?;
+    sess.permission_mode = mode;
+    save_session(store, &sess)
 }
 
 /// 一次工具调用（结构化持久化：前端可展开查看参数与结果，与流式事件同构）。
@@ -319,13 +352,8 @@ mod tests {
 
     fn sample(id: &str) -> Session {
         Session {
-            id: id.to_string(),
             created_at: format!("2026-10-14T00:0{id}:00"),
-            title: None,
-            format_version: SESSION_FORMAT_VERSION,
-            messages: Vec::new(),
-            usage: None,
-            last_usage: None,
+            ..Session::new(id.to_string())
         }
     }
 

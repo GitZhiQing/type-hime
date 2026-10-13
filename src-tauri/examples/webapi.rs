@@ -482,6 +482,20 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
             async move { flows::chat_flow_global(session_id, prompt, sink).await }
         }),
 
+        // ---- 权限（R4-①：档位存会话档案，覆盖表存 project.json） ----
+        "set_session_permission_mode" => ok!(session_store_work(&s("workPath")).and_then(|st| {
+            let mode: type_hime_lib::permissions::PermissionMode =
+                serde_json::from_value(body["mode"].clone()).unwrap_or_default();
+            type_hime_lib::agent::session::set_permission_mode(&st, &s("sessionId"), mode)
+        })),
+        "get_permission_config" => ok!(pipeline::load_permission_config(&PathBuf::from(s("workPath")))),
+        "set_permission_config" => {
+            let overrides: Vec<type_hime_lib::permissions::ToolOverride> =
+                serde_json::from_value(body["overrides"].clone()).unwrap_or_default();
+            let cfg = type_hime_lib::permissions::PermissionConfig { overrides };
+            ok!(pipeline::save_permission_config(&PathBuf::from(s("workPath")), &cfg))
+        }
+
         other => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("未知命令：{other}")})),

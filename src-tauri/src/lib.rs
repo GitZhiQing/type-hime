@@ -8,6 +8,7 @@ pub mod ledger;
 pub mod lore;
 pub mod pipeline;
 pub mod preflight;
+pub mod permissions;
 pub mod review;
 pub mod settings;
 pub mod works;
@@ -341,6 +342,39 @@ fn delete_session_global(session_id: String) -> Result<(), String> {
 fn load_session_view_global(session_id: String) -> Result<Vec<session::MessageView>, String> {
     let s = session::load_session(&session::SessionStore::Global, &session_id)?;
     Ok(session::message_views(&s.messages))
+}
+
+// ---------------------------------------------------------------------------
+// 权限（R4-①：两档 × 覆盖矩阵；档位存会话档案，覆盖表存 project.json）
+
+/// 设置会话权限档位（输入框左下角下拉切换）。
+#[tauri::command]
+fn set_session_permission_mode(
+    work_path: String,
+    session_id: String,
+    mode: permissions::PermissionMode,
+) -> Result<(), String> {
+    session::set_permission_mode(
+        &session::SessionStore::Work(PathBuf::from(work_path)),
+        &session_id,
+        mode,
+    )
+}
+
+/// 读取作品级权限覆盖表。
+#[tauri::command]
+fn get_permission_config(work_path: String) -> Result<permissions::PermissionConfig, String> {
+    pipeline::load_permission_config(&PathBuf::from(work_path))
+}
+
+/// 保存作品级权限覆盖表。
+#[tauri::command]
+fn set_permission_config(
+    work_path: String,
+    overrides: Vec<permissions::ToolOverride>,
+) -> Result<(), String> {
+    let cfg = permissions::PermissionConfig { overrides };
+    pipeline::save_permission_config(&PathBuf::from(work_path), &cfg)
 }
 
 #[tauri::command]
@@ -679,6 +713,9 @@ pub fn run() {
             rename_session_global,
             delete_session_global,
             load_session_view_global,
+            set_session_permission_mode,
+            get_permission_config,
+            set_permission_config,
             chat_stream,
             chat_stream_global,
             decide_approval,

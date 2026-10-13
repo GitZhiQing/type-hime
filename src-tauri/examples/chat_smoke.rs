@@ -68,13 +68,8 @@ let new_messages = outcome_final_text.messages;
 
     // 会话落盘验证
     let sess = type_hime_lib::agent::session::Session {
-        id: "smoke-test".into(),
-        created_at: type_hime_lib::works::now_iso(),
-        title: None,
-        format_version: type_hime_lib::agent::session::SESSION_FORMAT_VERSION,
         messages: new_messages,
-        usage: None,
-        last_usage: None,
+        ..type_hime_lib::agent::session::Session::new("smoke-test".into())
     };
     let store = type_hime_lib::agent::session::SessionStore::Work(work_dir.clone());
     type_hime_lib::agent::session::save_session(&store, &sess)?;
