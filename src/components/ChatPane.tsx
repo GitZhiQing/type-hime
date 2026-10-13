@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { api, makeChannel, AgentEvent, MessageView } from "@/lib/tauri";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "cn";
 import { toast } from "sonner";
-import { Loader2, Send, Wrench } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput } from "@/components/ai/tool";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputTextarea,
+  PromptInputToolbar,
+  PromptInputSubmit,
+} from "@/components/ai/prompt-input";
 
 interface ChatProps {
   /** work = 项目内会话（有文件工具）；global = 全局对话（无作品上下文） */
@@ -19,10 +25,18 @@ interface ChatProps {
   onTurnDone: () => void;
 }
 
-/** 一条流式中的消息：文本增量 + 工具调用轨迹 */
+/** 一次流式运行中的工具调用（按名称配对 call/result） */
+interface ToolCallState {
+  name: string;
+  args: string;
+  result: string | null;
+  state: "running" | "done";
+}
+
+/** 一条流式中的消息：文本增量 + 工具调用卡 */
 interface StreamingState {
   text: string;
-  toolTrace: { name: string; kind: "call" | "result" }[];
+  toolCalls: ToolCallState[];
 }
 
 /** 聊天主面板（R1 起不含会话管理，会话列表由父层持有）。 */
@@ -65,7 +79,7 @@ export function ChatPane({
     setInput("");
     setBusy(true);
     setMessages((m) => [...m, { role: "user", text: prompt }]);
-    setStreaming({ text: "", toolTrace: [] });
+    setStreaming({ text: "", toolCalls: [] });
 
     const channel = makeChannel<AgentEvent>();
     channel.onmessage = (ev) => {
@@ -75,9 +89,24 @@ export function ChatPane({
           case "text_delta":
             return { ...s, text: s.text + ev.text };
           case "tool_call":
-            return { ...s, toolTrace: [...s.toolTrace, { name: ev.name, kind: "call" }] };
-          case "tool_result":
-            return { ...s, toolTrace: [...s.toolTrace, { name: ev.name, kind: "result" }] };
+            return {
+              ...s,
+              toolCalls: [
+                ...s.toolCalls,
+                { name: ev.name, args: ev.args, result: null, state: "running" },
+              ],
+            };
+          case "tool_result": {
+            // 与最近一个同名 running 调用配对
+            const calls = [...s.toolCalls];
+            for (let i = calls.length - 1; i >= 0; i--) {
+              if (calls[i].name === ev.name && calls[i].state === "running") {
+                calls[i] = { ...calls[i], result: ev.output, state: "done" };
+                break;
+              }
+            }
+            return { ...s, toolCalls: calls };
+          }
           case "error":
             return { ...s, text: s.text + `\n\n[错误] ${ev.message}` };
           default:
@@ -115,15 +144,18 @@ export function ChatPane({
             <ChatBubble key={i} role={m.role} text={m.text} />
           ))}
           {streaming && (
-            <div className="flex flex-col gap-1">
-              {streaming.toolTrace.map((t, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-1 text-[11px] text-muted-foreground"
-                >
-                  <Wrench className="size-3" />
-                  {t.kind === "call" ? "调用" : "结果"}：{t.name}
-                </div>
+            <div className="flex flex-col gap-2">
+              {streaming.toolCalls.map((t, i) => (
+                <Tool key={i} defaultOpen={t.state === "running"}>
+                  <ToolHeader
+                    title={t.name}
+                    state={t.state === "running" ? "input-available" : "output-available"}
+                  />
+                  <ToolContent>
+                    <ToolInput input={safeParse(t.args)} />
+                    <ToolOutput output={t.result ? safeParse(t.result) : null} />
+                  </ToolContent>
+                </Tool>
               ))}
               <ChatBubble
                 role="assistant"
@@ -150,32 +182,31 @@ export function ChatPane({
       </ScrollArea>
 
       <div className="shrink-0 border-t p-2">
-        <Textarea
+        <PromptInput
           value={input}
-          onChange={(e) => setInput(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-          className="min-h-16 resize-none text-sm"
-          disabled={busy}
-        />
-        <div className="mt-1 flex justify-end">
-          <Button size="sm" onClick={send} disabled={!input.trim() || busy}>
-            {busy ? (
-              <Loader2 data-icon="inline-start" className="animate-spin" />
-            ) : (
-              <Send data-icon="inline-start" />
-            )}
-            发送
-          </Button>
-        </div>
+          setValue={setInput}
+          onSubmit={send}
+          isLoading={busy}
+        >
+          <PromptInputBody>
+            <PromptInputTextarea placeholder="输入消息，Enter 发送，Shift+Enter 换行" />
+          </PromptInputBody>
+          <PromptInputToolbar>
+            <PromptInputSubmit />
+          </PromptInputToolbar>
+        </PromptInput>
       </div>
     </div>
   );
+}
+
+/** 工具参数/结果的宽容解析：JSON 解析失败原样返回字符串 */
+function safeParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function ChatBubble({
