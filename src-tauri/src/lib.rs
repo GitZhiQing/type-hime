@@ -21,6 +21,7 @@ use tauri::{AppHandle, Emitter, State};
 use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
+use agent::skills;
 use lore::{SettingMeta, Visibility};
 use pipeline::{PipelineView, Stage};
 use review::{Proposal, SharedQueue};
@@ -378,6 +379,12 @@ async fn propose_ledger_update(
     flows::ledger_update_flow(&queue.0, work_path, volume, chapter, sink, prop).await
 }
 
+/// 技能清单（R2：`/` 补全与技能文档制品的数据源；workPath 缺省=仅内置技能）。
+#[tauri::command]
+fn list_skills(work_path: Option<String>) -> Result<Vec<skills::SkillMeta>, String> {
+    Ok(skills::list_skill_meta(work_path.map(PathBuf::from).as_deref()))
+}
+
 /// 关联泄漏检查（零 token）：可见条目内容是否大段复述隐藏条目。
 #[tauri::command]
 fn check_visibility_leak(work_path: String) -> Result<Vec<String>, String> {
@@ -592,6 +599,7 @@ pub fn run() {
             set_setting_visibility,
             get_ledger,
             preview_assembly,
+            list_skills,
             // 会话
             list_sessions,
             rename_session,

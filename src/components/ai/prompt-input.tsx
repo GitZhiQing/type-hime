@@ -117,12 +117,13 @@ export const PromptInputTextarea = ({
       onChange={(e) => setValue(e.currentTarget.value)}
       disabled={isLoading}
       onKeyDown={(e) => {
+        // 外部（补全菜单）先处理；preventDefault 表示已消费
+        onKeyDown?.(e);
+        if (e.defaultPrevented) return;
         if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
           e.preventDefault();
           submit();
-          return;
         }
-        onKeyDown?.(e);
       }}
       className={cn(
         "field-sizing-content max-h-48 min-h-14 w-full resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50",

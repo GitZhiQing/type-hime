@@ -100,6 +100,50 @@ pub fn render_skills(skills: &[Skill]) -> String {
     out
 }
 
+/// 技能清单项（R2：`/` 补全菜单与制品面板技能文档的数据源）。
+#[derive(Debug, Serialize)]
+pub struct SkillMeta {
+    pub name: String,
+    pub description: String,
+    pub when_to_use: Option<String>,
+    /// builtin | work
+    pub source: String,
+    /// 作品层是否覆盖了同名内置技能
+    pub overridden: bool,
+}
+
+/// 生效技能清单（含来源与覆盖信息）。
+pub fn list_skill_meta(work_dir: Option<&Path>) -> Vec<SkillMeta> {
+    let builtin = load_skills(None);
+    let effective = load_skills(work_dir);
+    effective
+        .into_iter()
+        .map(|s| {
+            let is_override = builtin
+                .iter()
+                .find(|b| b.name == s.name)
+                .is_some_and(|b| b.description != s.description);
+            if builtin.iter().any(|b| b.name == s.name) {
+                SkillMeta {
+                    name: s.name,
+                    description: s.description,
+                    when_to_use: s.when_to_use,
+                    source: "builtin".to_string(),
+                    overridden: is_override,
+                }
+            } else {
+                SkillMeta {
+                    name: s.name,
+                    description: s.description,
+                    when_to_use: s.when_to_use,
+                    source: "work".to_string(),
+                    overridden: false,
+                }
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

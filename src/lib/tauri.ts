@@ -148,6 +148,14 @@ export interface SessionMeta {
   created_at: string;
 }
 
+export interface SkillMeta {
+  name: string;
+  description: string;
+  when_to_use: string | null;
+  source: "builtin" | "work";
+  overridden: boolean;
+}
+
 export interface MessageView {
   role: string;
   text: string;
@@ -418,6 +426,10 @@ export const api = {
     call<string[]>("check_visibility_leak", { workPath }),
   tidyLedger: (workPath: string, onEvent: EventChannel<AgentEvent>) =>
     callStream<AgentEvent>("tidy_ledger", { workPath }, onEvent),
+  preflightChapter: (workPath: string, volume: number, chapter: string) =>
+    call<string[]>("preflight_chapter", { workPath, volume, chapter }),
+  listSkills: (workPath?: string) =>
+    call<SkillMeta[]>("list_skills", { workPath: workPath ?? null }),
 
   // 成本账
   getUsageSummary: (workPath: string) =>
