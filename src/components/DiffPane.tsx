@@ -4,6 +4,7 @@ import { api, Proposal } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "cn";
 import { Check, FilePlus2, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -13,21 +14,73 @@ interface DiffPaneProps {
   onApplied: () => void;
 }
 
+/** 连续 3 行以上的上下文行折叠为省略号（默认只展示变更±3 行的语义不变，视觉更紧凑） */
+function collapseContext(diff: string): string[] {
+  const lines = diff.split("\n");
+  const out: string[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    if (run.length > 4) {
+      out.push(run[0], "⋯", run[run.length - 1]);
+    } else {
+      out.push(...run);
+    }
+    run = [];
+  };
+  for (const line of lines) {
+    const isContext = !line.startsWith("+") && !line.startsWith("-") && !line.startsWith("@@");
+    if (isContext) {
+      run.push(line);
+    } else {
+      flush();
+      out.push(line);
+    }
+  }
+  flush();
+  return out;
+}
+
 export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [autoLedger, setAutoLedger] = useState(
+    () => localStorage.getItem("type-hime:auto-ledger") === "1",
+  );
+
+  function toggleAutoLedger(v: boolean) {
+    setAutoLedger(v);
+    localStorage.setItem("type-hime:auto-ledger", v ? "1" : "0");
+  }
 
   useEffect(() => {
     let alive = true;
-    const reload = () =>
-      api.listProposals().then((p) => alive && setProposals(p));
+    const reload = () => api.listProposals().then((p) => alive && setProposals(p));
     reload();
-    const un = listen<Proposal>("review:new", () => reload());
+    const un = listen<Proposal>("review:new", (event) => {
+      // 账本回写半自动：开关开启时，账本提议自动接受（低风险结构化更新）
+      const p = event.payload;
+      if (
+        autoLedger &&
+        p.rel_path.endsWith("账本.md") &&
+        p.work_path === workPath
+      ) {
+        api
+          .applyProposal(workPath, p.id)
+          .then(() => {
+            toast.success(`已自动接受账本回写（提议 #${p.id}）`);
+            onApplied();
+          })
+          .catch(() => reload());
+        return;
+      }
+      reload();
+    });
     return () => {
       alive = false;
       un.then((f) => f());
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLedger, workPath]);
 
   async function act(id: number, accept: boolean) {
     setBusyId(id);
@@ -58,8 +111,12 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
 
   if (proposals.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-        暂无待审提议。AI 的修改会以提议出现在这里，接受才落盘。
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+        <div>暂无待审提议。AI 的修改会以提议出现在这里，接受才落盘。</div>
+        <label className="flex items-center gap-2 text-xs">
+          <Switch checked={autoLedger} onCheckedChange={toggleAutoLedger} />
+          账本回写自动接受（低风险结构化更新）
+        </label>
       </div>
     );
   }
@@ -113,7 +170,7 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
               </div>
             )}
             <pre className="overflow-x-auto p-2 font-mono text-[12px] leading-relaxed">
-              {p.diff.split("\n").map((line, i) => (
+              {collapseContext(p.diff).map((line, i) => (
                 <div
                   key={i}
                   className={cn(
@@ -121,6 +178,7 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
                     line.startsWith("-") && !line.startsWith("---") && "bg-red-500/10 text-red-700",
                     (line.startsWith("@@") || line.startsWith("---") || line.startsWith("+++")) &&
                       "text-muted-foreground",
+                    line === "⋯" && "text-muted-foreground/50 select-none",
                   )}
                 >
                   {line || " "}

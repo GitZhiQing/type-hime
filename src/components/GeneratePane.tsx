@@ -33,7 +33,8 @@ type Target =
   | "consistency"
   | "deai"
   | "recheck"
-  | "volume_review";
+  | "volume_review"
+  | "tidy";
 
 export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
   const [volume, setVolume] = useState("1");
@@ -107,6 +108,7 @@ export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
       deai: (c) => api.reviewChapter(workPath, vol, ch, "deai", c),
       recheck: (c) => api.recheckChapter(workPath, vol, ch, c),
       volume_review: (c) => api.reviewVolume(workPath, vol, c),
+      tidy: (c) => api.tidyLedger(workPath, c),
     };
     run(target, invocations[target]);
     if (target === "consistency" || target === "volume_review" || target === "recheck") {
@@ -236,6 +238,21 @@ export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
               <Layers data-icon="inline-start" />
             )}
             审本卷
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={busy !== null}
+            onClick={() => fire("tidy")}
+            title="账本整理：合并同线索/归档已回收/压缩休眠/补时间线（提议经审阅）"
+          >
+            {busy === "tidy" ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <ScrollText data-icon="inline-start" />
+            )}
+            账本整理
           </Button>
         </div>
       </div>

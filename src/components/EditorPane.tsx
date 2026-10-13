@@ -192,6 +192,25 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
           <span className="text-muted-foreground/70">
             隐藏/未到开放卷的条目不进任何 prompt（红线）
           </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-6 px-2 text-[11px]"
+            onClick={async () => {
+              try {
+                const warns = await api.checkVisibilityLeak(workPath);
+                if (warns.length === 0) {
+                  toast.success("关联泄漏检查通过：可见条目未复述隐藏设定");
+                } else {
+                  warns.forEach((w) => toast.warning(w, { duration: 8000 }));
+                }
+              } catch (e) {
+                toast.error(String(e));
+              }
+            }}
+          >
+            泄漏检查
+          </Button>
         </div>
       )}
 

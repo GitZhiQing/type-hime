@@ -95,6 +95,7 @@ export interface Ledger {
 
 export interface Proposal {
   id: number;
+  work_path: string;
   rel_path: string;
   diff: string;
   reason: string;
@@ -307,6 +308,12 @@ export const api = {
       status,
       note: note ?? null,
     }),
+
+  // 维护
+  checkVisibilityLeak: (workPath: string) =>
+    invoke<string[]>("check_visibility_leak", { workPath }),
+  tidyLedger: (workPath: string, onEvent: Channel<AgentEvent>) =>
+    invoke<void>("tidy_ledger", { workPath, onEvent }),
 
   // 成本账
   getUsageSummary: (workPath: string) =>
