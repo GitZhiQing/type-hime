@@ -257,9 +257,10 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
         }
         "get_ledger" => ok!(ledger::read_ledger(&PathBuf::from(s("workPath")))),
         "check_visibility_leak" => ok!(lore::check_visibility_leak(&PathBuf::from(s("workPath")))),
-        "list_skills" => ok!(agent::skills::list_skill_meta(
-            opt_str("workPath").map(PathBuf::from).as_deref()
-        )),
+        "list_skills" => Json(agent::skills::list_skill_meta(
+            opt_str("workPath").map(PathBuf::from).as_deref(),
+        ))
+        .into_response(),
         "preview_assembly" => {
             let mut opts = assembly::AssemblyOptions::default();
             opts.volume = n("volume");

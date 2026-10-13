@@ -12,7 +12,7 @@ import { EditorPane } from "@/components/EditorPane";
 import { ChatPane } from "@/components/ChatPane";
 import { SessionList } from "@/components/SessionList";
 import { GeneratePane } from "@/components/GeneratePane";
-import { StageBar } from "@/components/StageBar";
+import { PlanBar } from "@/components/PlanBar";
 import { DiffPane } from "@/components/DiffPane";
 import { AssemblyPane } from "@/components/AssemblyPane";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -192,10 +192,6 @@ export function Workbench() {
         </Button>
       </header>
 
-      {pipeline && (
-        <StageBar workPath={workPath} pipeline={pipeline} onChange={setPipeline} />
-      )}
-
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
         {/* 左栏（R1 过渡形态）：会话列表（上）+ 资源树/git（下）；R5 资源树移入制品面板 */}
         <ResizablePanel defaultSize={22} minSize={14}>
@@ -266,7 +262,8 @@ export function Workbench() {
 
         <ResizableHandle withHandle />
 
-        {/* 中栏：聊天主操作面（R1 起独占，生成按钮降级到右栏过渡 Tab，R5 退役） */}
+        {/* 中栏：聊天主操作面（R1 起独占，生成按钮降级到右栏过渡 Tab，R5 退役）
+            PLAN 条常驻输入框上方（R2-④，REDESIGN §5.4） */}
         <ResizablePanel defaultSize={44} minSize={24}>
           <ChatPane
             scope="work"
@@ -274,6 +271,15 @@ export function Workbench() {
             sessionId={sessionId}
             onNewSession={createSession}
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
+            planSlot={
+              pipeline ? (
+                <PlanBar
+                  workPath={workPath}
+                  pipeline={pipeline}
+                  onChange={setPipeline}
+                />
+              ) : undefined
+            }
           />
         </ResizablePanel>
 

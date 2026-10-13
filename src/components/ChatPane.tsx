@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   api,
   makeChannel,
@@ -37,6 +37,8 @@ interface ChatProps {
   onNewSession: () => string;
   /** 一轮对话完成后回调（父层刷新会话列表，自动标题已落盘） */
   onTurnDone: () => void;
+  /** 输入框上方的插槽（work 作用域放 PLAN 条；REDESIGN §5.4） */
+  planSlot?: ReactNode;
 }
 
 /** 一次流式运行中的工具调用（按名称配对 call/result） */
@@ -74,6 +76,7 @@ export function ChatPane({
   sessionId,
   onNewSession,
   onTurnDone,
+  planSlot,
 }: ChatProps) {
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [input, setInput] = useState("");
@@ -411,6 +414,7 @@ export function ChatPane({
         </div>
       </ScrollArea>
 
+      {planSlot && <div className="shrink-0 border-t">{planSlot}</div>}
       <div className="shrink-0 border-t p-2">
         <PromptInput
           value={input}
