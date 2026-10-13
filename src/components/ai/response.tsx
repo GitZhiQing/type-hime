@@ -22,7 +22,7 @@ export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
-        "text-sm leading-relaxed",
+        "md-response text-sm leading-relaxed",
         "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         "[&_p]:my-1.5",
         "[&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5",
@@ -37,6 +37,9 @@ export const MessageResponse = memo(
         className,
       )}
       plugins={streamdownPlugins}
+      // 下载按钮对聊天场景冗余；复制保留（紧凑版样式见 index.css .md-response 节）
+      controls={{ code: { download: false } }}
+      codeBlockMaxHeight={320}
       {...props}
     />
   ),
