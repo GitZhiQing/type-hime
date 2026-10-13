@@ -127,6 +127,11 @@ pub async fn chat_flow(
             .collect();
         format!("{}\n\n{}", blocks.join("\n"), prompt)
     };
+    // slash 指令化（R4-⑥）：/命令 参数 → 结构化指令块（附在消息尾，原命令留在消息首供展示）
+    let prompt = match slash_instruction(&prompt) {
+        Some(block) => format!("{prompt}\n\n{block}"),
+        None => prompt,
+    };
     let spec = {
         // 技能动态挂载（R4-④ · REDESIGN §8.2）：默认 writer-basics + slash 强制 + 关键词路由
         let mut extra = agent::skills::route_skills(&prompt, Some(&work_dir));
@@ -185,6 +190,113 @@ pub fn chat_flow_runner(
     })
 }
 
+/// slash 指令化（R4-⑥ · REDESIGN §5.3）：`/命令 参数` → 结构化指令块，驱动 Agent 走既有能力
+/// （run_flow / 直连检查工具），而不是前端直调命令。返回 None 表示不是已知 slash 命令。
+pub fn slash_instruction(prompt: &str) -> Option<String> {
+    let head = prompt.trim_start();
+    if !head.starts_with('/') {
+        return None;
+    }
+    let mut it = head.split_whitespace();
+    let cmd = it.next()?.trim_start_matches('/');
+    let rest: Vec<&str> = it.collect();
+    // 参数：数字序列（一个=章号，两个=卷+章）或显式 ch-00N；审卷的单个数字=卷号
+    let nums: Vec<u32> = rest.iter().filter_map(|s| s.parse::<u32>().ok()).collect();
+    let explicit_chapter = rest.iter().find(|s| s.starts_with("ch-")).map(|s| s.to_string());
+    let (volume, chapter) = if cmd == "审卷" {
+        (nums.first().copied().unwrap_or(1), explicit_chapter.unwrap_or_default())
+    } else {
+        match nums.len() {
+            0 => (1u32, explicit_chapter.unwrap_or_default()),
+            1 => (
+                1u32,
+                explicit_chapter.unwrap_or_else(|| format!("ch-{:03}", nums[0])),
+            ),
+            _ => (
+                nums[0],
+                explicit_chapter.unwrap_or_else(|| format!("ch-{:03}", nums[1])),
+            ),
+        }
+    };
+    let flow = match cmd {
+        "章纲" => Some(("chapter_outline", "生成章纲")),
+        "正文" => Some(("chapter", "生成正文")),
+        "回写" => Some(("ledger_update", "账本回写")),
+        "一致性" => Some(("consistency", "一致性检查")),
+        "去AI味" => Some(("deai", "去 AI 味")),
+        "复检" => Some(("recheck", "复检")),
+        "审卷" => Some(("review_volume", "卷级批审")),
+        "整理账本" => Some(("ledger_tidy", "账本整理")),
+        _ => None,
+    };
+    if let Some((kind, label)) = flow {
+        let (params, chapter_hint) = match kind {
+            "review_volume" => (format!("volume={volume}"), String::new()),
+            "ledger_tidy" => ("（无参数）".to_string(), String::new()),
+            _ if chapter.is_empty() => (
+                format!("volume={volume}"),
+                "\n（作者未给出章号，请先向作者确认章号再执行。）".to_string(),
+            ),
+            _ => (
+                format!("volume={volume}, chapter={chapter}"),
+                String::new(),
+            ),
+        };
+        return Some(format!(
+            "【技能指令】{label}（{cmd}）\n请调用 run_flow 工具执行（kind={kind}, {params}），不要用 read_file/propose_* 手工模拟该流程；完成后向作者简要汇报结果与产出的提议。{chapter_hint}"
+        ));
+    }
+    match cmd {
+        "泄漏检查" => Some(
+            "【技能指令】关联泄漏检查\n请调用 check_visibility_leak 工具（零 token，不发模型请求），把结果汇报给作者。".to_string(),
+        ),
+        "preflight" => Some(format!(
+            "【技能指令】修为预检\n请调用 preflight_chapter 工具（volume={volume}, chapter={chapter}），把结果汇报给作者。"
+        )),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slash_instruction;
+
+    #[test]
+    fn slash_instruction_parses_params() {
+        let s = slash_instruction("/正文 1 3").unwrap();
+        assert!(s.contains("kind=chapter"), "{s}");
+        assert!(s.contains("volume=1, chapter=ch-003"), "{s}");
+
+        // 单数字 = 章号（默认第 1 卷）
+        let s = slash_instruction("/一致性 5").unwrap();
+        assert!(s.contains("kind=consistency"), "{s}");
+        assert!(s.contains("chapter=ch-005"), "{s}");
+
+        // 显式 ch-00N
+        let s = slash_instruction("/复检 ch-002").unwrap();
+        assert!(s.contains("chapter=ch-002"), "{s}");
+
+        // 无章号 → 提示先问作者
+        let s = slash_instruction("/正文").unwrap();
+        assert!(s.contains("未给出章号"), "{s}");
+
+        // 审卷只带卷号；整理账本无参数
+        let s = slash_instruction("/审卷 2").unwrap();
+        assert!(s.contains("kind=review_volume") && s.contains("volume=2"), "{s}");
+        let s = slash_instruction("/整理账本").unwrap();
+        assert!(s.contains("kind=ledger_tidy"), "{s}");
+
+        // 直连检查工具
+        let s = slash_instruction("/泄漏检查").unwrap();
+        assert!(s.contains("check_visibility_leak"), "{s}");
+        let s = slash_instruction("/preflight 1 3").unwrap();
+        assert!(s.contains("preflight_chapter") && s.contains("chapter=ch-003"), "{s}");
+
+        // 非 slash / 未知命令
+        assert!(slash_instruction("普通消息").is_none());
+        assert!(slash_instruction("/不存在 1").is_none());
+    }
+}
 /// kind → Stage 的阶段门映射（ledger_tidy 为维护操作，不设门）。
 fn flow_gate_stage(kind: &str) -> Option<Stage> {
     match kind {

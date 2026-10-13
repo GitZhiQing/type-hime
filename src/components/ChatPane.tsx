@@ -35,7 +35,7 @@ import { ProposalCard, type InlineProposal } from "@/components/ai/proposal-card
 import { ConfirmationCard, type ApprovalView } from "@/components/ai/confirmation";
 import { TaskCard, type TaskView } from "@/components/ai/task";
 import { PermissionSelect } from "@/components/PermissionSelect";
-import { SLASH_DEFS, parseSlash, runSlash } from "@/lib/slash";
+import { SLASH_DEFS } from "@/lib/slash";
 
 interface ChatProps {
   /** work = 项目内会话（有文件工具）；global = 全局对话（无作品上下文） */
@@ -286,59 +286,8 @@ export function ChatPane({
     setSubtasks([]);
     busyRef.current = true;
 
-    // slash 命令（过渡实现：前端直达命令，R4 切换为 Agent 指令）
-    if (isWork && raw.startsWith("/")) {
-      const parsed = parseSlash(raw);
-      if ("error" in parsed) {
-        toast.error(parsed.error);
-        return;
-      }
-      setInput("");
-      setBusy(true);
-      setMessages((m) => [...m, { role: "user", text: raw, tool_calls: [] }]);
-      setStreaming({ text: "", toolCalls: [] });
-      const channel = makeChannel<AgentEvent>();
-      let acc = "";
-      channel.onmessage = (ev) => {
-        if (ev.type === "text_delta") acc += ev.text;
-        handleStreamEvent(ev);
-      };
-      try {
-        const summary = await runSlash(parsed, workPath!, channel);
-        if (summary !== null) {
-          setStreaming(null);
-          setMessages((m) => [...m, { role: "assistant", text: summary, tool_calls: [] }]);
-        } else {
-          // 流式 flow：把累积文本与工具调用固化为一条助手消息（工具调用结构化进卡片）
-          setStreaming((s) => {
-            if (s) {
-              setMessages((m) => [
-                ...m,
-                {
-                  role: "assistant",
-                  text: s.text,
-                  tool_calls: s.toolCalls.map((t) => ({
-                    name: t.name,
-                    args: t.args,
-                    result: t.result,
-                    is_error: false,
-                  })),
-                },
-              ]);
-            }
-            return null;
-          });
-          onTurnDone();
-        }
-      } catch (e) {
-        setStreaming(null);
-        toast.error(String(e));
-      } finally {
-        setBusy(false);
-        busyRef.current = false;
-      }
-      return;
-    }
+    // R4-⑥：slash 不再前端直调命令——一律作为消息发给 Agent（后端把 /命令 参数
+    // 转成结构化指令块，驱动 run_flow / 直连检查工具，Agent 可汇报阶段门与建议）。
 
     // 普通对话（@ 引用展开进 prompt）
     const sid = sessionId ?? onNewSession();
