@@ -24,6 +24,9 @@ pub struct Ledger {
     pub facts: Vec<LedgerEntry>,
     /// 伏笔登记
     pub foreshadows: Vec<LedgerEntry>,
+    /// 时间线（### 章号 小节，body=距开篇天数+关键事件）
+    #[serde(default)]
+    pub timeline: Vec<LedgerEntry>,
 }
 
 /// 账本摘要压缩选项。
@@ -68,11 +71,11 @@ pub fn extract_touched_chapter(text: &str) -> Option<u32> {
     max
 }
 
-/// 解析账本：`## 角色状态` / `## 已交代事实` / `## 伏笔登记` 三个二级小节，
+/// 解析账本：`## 角色状态` / `## 已交代事实` / `## 伏笔登记` / `## 时间线` 二级小节，
 /// 各自下的 `###` 三级小节为条目（标题 + 正文，body 中的章号提取为最近更新）。
 pub fn parse(raw: &str) -> Ledger {
     let mut ledger = Ledger::default();
-    // 0=characters 1=facts 2=foreshadows
+    // 0=characters 1=facts 2=foreshadows 3=timeline
     let mut bucket: Vec<(u8, String, String)> = Vec::new();
     let mut cur: Option<u8> = None;
     let mut title: Option<String> = None;
@@ -89,6 +92,7 @@ pub fn parse(raw: &str) -> Ledger {
                 "角色状态" => Some(0),
                 "已交代事实" => Some(1),
                 "伏笔登记" => Some(2),
+                "时间线" => Some(3),
                 _ => None,
             };
             title = None;
@@ -108,11 +112,15 @@ pub fn parse(raw: &str) -> Ledger {
         bucket.push((cur.unwrap_or(2), t, body));
     }
     for (b, title, body) in bucket {
-        let last_touched = extract_touched_chapter(&body);
+        let last_touched = extract_touched_chapter(&body).or_else(|| {
+            // 时间线条目标题本身是章号
+            extract_touched_chapter(&title)
+        });
         let e = LedgerEntry { title, body, last_touched };
         match b {
             0 => ledger.characters.push(e),
             1 => ledger.facts.push(e),
+            3 => ledger.timeline.push(e),
             _ => ledger.foreshadows.push(e),
         }
     }
@@ -150,6 +158,21 @@ pub fn render_summary_with(ledger: &Ledger, opts: &SummaryOpts) -> String {
     sec(&mut out, "角色当前状态", &ledger.characters);
     sec(&mut out, "已交代事实（不可矛盾）", &ledger.facts);
     sec(&mut out, "伏笔登记（未回收前不得说破）", &ledger.foreshadows);
+    // 时间线：注入最近锚点（全量模式给全部，压缩模式给最近 5 条）
+    if !ledger.timeline.is_empty() {
+        out.push_str("\n## 时间线（硬约束：正文中的时间表述必须与之相容）\n");
+        let items: Vec<&LedgerEntry> = if opts.full {
+            ledger.timeline.iter().collect()
+        } else {
+            let mut sorted: Vec<&LedgerEntry> = ledger.timeline.iter().collect();
+            sorted.sort_by_key(|e| e.last_touched.unwrap_or(0));
+            sorted.into_iter().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect()
+        };
+        for e in items {
+            let body: String = e.body.chars().take(120).collect();
+            out.push_str(&format!("- {}：{}\n", e.title, body.trim()));
+        }
+    }
     if out == "# 连续性账本摘要\n" {
         out.push_str("\n（账本为空：尚无角色状态与事实记录）");
     }

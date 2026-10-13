@@ -5,6 +5,7 @@ pub mod git;
 pub mod ledger;
 pub mod lore;
 pub mod pipeline;
+pub mod preflight;
 pub mod review;
 pub mod settings;
 pub mod works;
@@ -452,6 +453,20 @@ async fn propose_ledger_update(
     Ok(())
 }
 
+/// 独立预检（零 token 快速检查，不发模型请求）。
+#[tauri::command]
+fn preflight_chapter(
+    work_path: String,
+    volume: u32,
+    chapter: String,
+) -> Result<Vec<String>, String> {
+    let work_dir = PathBuf::from(work_path);
+    let ch_path = assembly::chapter_path(volume, &chapter);
+    let text = works::read_file(&work_dir, &ch_path)?;
+    let ledger = ledger::read_ledger(&work_dir)?;
+    Ok(preflight::preflight_cultivation(&text, &ledger))
+}
+
 /// 审校：一致性检查 / 去 AI 味。mode: "consistency" | "deai"
 #[tauri::command]
 async fn review_chapter(
@@ -477,15 +492,43 @@ async fn review_chapter(
     opts.stage = pipeline::Stage::Review;
     let assembled = assembly::assemble(&work_dir, &opts)?;
 
+    // 代码级预检（零 token）：修为层级等连续量与账本比对，结果注入审校
+    let preflight_report = if mode != "deai" {
+        let text = works::read_file(&work_dir, &ch_path)?;
+        let ledger = ledger::read_ledger(&work_dir)?;
+        preflight::preflight_cultivation(&text, &ledger)
+    } else {
+        Vec::new()
+    };
+    if !preflight_report.is_empty() {
+        for line in &preflight_report {
+            let _ = on_event.send(AgentEvent::TextDelta {
+                text: format!("[代码预检] {line}\n"),
+            });
+        }
+    }
+
     let mut spec = reviewer_spec(&assembled.system);
     let task = if mode == "deai" {
         format!(
             "对 {ch_path} 执行「去 AI 味」：按文风指令改写整章，用 propose_edit 提交整章全文（路径 {ch_path}）。"
         )
     } else {
+        let preflight_block = if preflight_report.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n代码预检已发现以下确定问题（直接核实并纳入修复）：\n{}\n",
+                preflight_report
+                    .iter()
+                    .map(|s| format!("- {s}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        };
         format!(
             "对 {ch_path} 执行「一致性检查」：先 read 正文与账本/设定，输出编号问题清单；\
-             确定的硬伤用 propose_edit 提交修复（路径 {ch_path}），拿不准的只列清单。"
+             确定的硬伤用 propose_edit 提交修复（路径 {ch_path}），拿不准的只列清单。{preflight_block}"
         )
     };
     spec.sections.push(("task".to_string(), task));
@@ -599,6 +642,7 @@ pub fn run() {
             // 生成流水线
             generate_artifact,
             propose_ledger_update,
+            preflight_chapter,
             review_chapter,
             // diff 审阅
             list_proposals,
