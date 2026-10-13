@@ -27,7 +27,13 @@ fn realm_label(level: u32) -> String {
     match level {
         10 => "筑基".into(),
         11 => "金丹".into(),
-        n => format!("炼气{}层", n),
+        n => {
+            let cn = ["一", "二", "三", "四", "五", "六", "七", "八", "九"]
+                .get((n - 1) as usize)
+                .copied()
+                .unwrap_or("?");
+            format!("炼气{cn}层")
+        }
     }
 }
 
