@@ -18,6 +18,7 @@ import {
   ConversationScrollButton,
 } from "@/components/ai/conversation";
 import { Message, MessageContent, MessageText } from "@/components/ai/message";
+import { MessageResponse } from "@/components/ai/response";
 import {
   PromptInput,
   PromptInputBody,
@@ -355,7 +356,11 @@ export function ChatPane({
           {messages.map((m, i) => (
             <Message key={i} from={m.role === "user" ? "user" : "assistant"}>
               <MessageContent>
-                <MessageText text={m.text} />
+                {m.role === "user" ? (
+                  <MessageText text={m.text} />
+                ) : (
+                  <MessageResponse>{m.text}</MessageResponse>
+                )}
               </MessageContent>
             </Message>
           ))}
@@ -375,7 +380,7 @@ export function ChatPane({
               ))}
               <Message from="assistant">
                 <MessageContent pulsing>
-                  <MessageText text={streaming.text || "…"} />
+                  <MessageResponse>{streaming.text || "…"}</MessageResponse>
                 </MessageContent>
               </Message>
             </>
