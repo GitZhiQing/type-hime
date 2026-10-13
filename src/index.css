@@ -129,40 +129,65 @@
     }
 }
 /* ---------------------------------------------------------------------------
-   AI 消息代码块紧凑化（Streamdown 输出，data-streamdown 属性锚定；
+   AI 消息代码块（Streamdown 输出，data-streamdown 属性锚定；
    作用域 .md-response 见 components/ai/response.tsx）
-   目标：单层边框（去掉外层 rounded-xl 双框）、更小内边距与字号、贴合气泡 */
+   规格对齐 AI Elements CodeBlock（shadcn 生态规范）：
+   单层容器边框（rounded-md border）+ header 条（border-b）+ 右侧 ghost 复制按钮 */
 
 .md-response [data-streamdown="code-block"] {
   margin: 0.5rem 0;
   gap: 0;
   padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--background);
+  overflow: hidden;
 }
 
+/* header 条：左留语言位，右侧动作区（空语言时仅一条细条 + 复制按钮） */
 .md-response [data-streamdown="code-block-header"] {
-  min-height: 0;
-  padding: 0 0.25rem 0.25rem;
-  background: transparent;
-  border: none;
+  height: 1.75rem;
+  padding: 0 0.25rem 0 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
 }
 
+/* 动作区：去掉 Streamdown 默认的盒状边框底色（观感突兀的主因），只作布局容器 */
+.md-response [data-streamdown="code-block-actions"] {
+  margin-left: auto;
+  height: auto;
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* 复制按钮：ghost 小图标按钮（14px 图标，AI Elements CodeBlockCopyButton 规格） */
 .md-response [data-streamdown="code-block-actions"] button {
+  display: inline-flex;
   height: 1.5rem;
   width: 1.5rem;
-  opacity: 0.7;
+  align-items: center;
+  justify-content: center;
+  border-radius: calc(var(--radius) - 4px);
+  color: var(--muted-foreground);
 }
 .md-response [data-streamdown="code-block-actions"] button:hover {
-  opacity: 1;
+  color: var(--foreground);
+  background: var(--accent);
+}
+.md-response [data-streamdown="code-block-actions"] svg {
+  width: 0.875rem;
+  height: 0.875rem;
 }
 
+/* body：单层边框已在容器上，紧凑内边距与字号 */
 .md-response [data-streamdown="code-block-body"] {
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  background: var(--background);
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .md-response [data-streamdown="code-block-body"] pre,
