@@ -90,11 +90,10 @@ export function ContextBar({ workPath, sessionId, refreshKey = 0 }: ContextBarPr
     }
   }
 
-  const sessionTokens = overview?.session_usage
-    ? overview.session_usage.input_tokens + overview.session_usage.output_tokens
-    : 0;
+  const lastInput = overview?.last_input_tokens ?? 0;
+  const cumulative = overview?.session_usage;
   const window = overview?.context_window ?? 128_000;
-  const sessionPct = window > 0 ? Math.round((sessionTokens / window) * 100) : 0;
+  const sessionPct = Math.round(overview?.session_percent ?? 0);
   const nearLimit = sessionPct >= 80;
 
   if (!prefs) {
@@ -123,7 +122,7 @@ export function ContextBar({ workPath, sessionId, refreshKey = 0 }: ContextBarPr
           上下文
         </CollapsibleTrigger>
         <span className="text-muted-foreground">
-          会话 {fmtK(sessionTokens)}/{fmtK(window)}
+          会话 ≈{fmtK(lastInput)}/{fmtK(window)}
           <span className={cn("ml-0.5", nearLimit && "font-medium text-amber-600")}>
             ({sessionPct}%)
           </span>
@@ -158,11 +157,16 @@ export function ContextBar({ workPath, sessionId, refreshKey = 0 }: ContextBarPr
             </div>
             <div className="flex items-center gap-2">
               <span>
-                输入 {fmtK(overview?.session_usage?.input_tokens ?? 0)} · 输出{" "}
-                {fmtK(overview?.session_usage?.output_tokens ?? 0)} tokens，窗口{" "}
+                最近一轮输入 ≈{fmtK(lastInput)} tokens（窗口占用口径）· 窗口{" "}
                 {fmtK(window)}
               </span>
             </div>
+            {cumulative && (
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                会话累计：输入 {fmtK(cumulative.input_tokens)} · 输出{" "}
+                {fmtK(cumulative.output_tokens)} tokens（成本参考）
+              </div>
+            )}
             <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
               <div
                 className={cn(

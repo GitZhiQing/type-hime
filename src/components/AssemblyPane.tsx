@@ -176,7 +176,10 @@ export function AssemblyPane({ workPath }: AssemblyPaneProps) {
                     )}
                   >
                     <div className="flex items-center gap-2 text-xs font-medium">
-                      <span>{c.name}</span>
+                      <span className={cn(c.excluded && "line-through opacity-70")}>
+                        {c.name}
+                      </span>
+                      {c.excluded && <Badge variant="secondary">已排除</Badge>}
                       {c.included ? (
                         <span className="text-muted-foreground">{c.tokens} tokens</span>
                       ) : (
@@ -201,7 +204,7 @@ export function AssemblyPane({ workPath }: AssemblyPaneProps) {
               <pre className="whitespace-pre-wrap p-3 font-mono text-[11px] leading-relaxed">
                 {result.system}
                 {result.components
-                  .filter((c) => c.included)
+                  .filter((c) => c.included && !c.excluded)
                   .map((c) => `\n\n# ${c.name}\n${c.content}`)
                   .join("")}
               </pre>

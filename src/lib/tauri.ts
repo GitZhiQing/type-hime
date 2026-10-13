@@ -137,7 +137,12 @@ export interface ProviderView {
 }
 
 export interface ContextOverview {
+  /** 会话全部轮次累计用量（成本参考） */
   session_usage: { input_tokens: number; output_tokens: number } | null;
+  /** 最近一轮输入 tokens（≈ 当前对话历史大小，窗口占用口径） */
+  last_input_tokens: number | null;
+  /** 最近一轮输入占窗口比例（0-100） */
+  session_percent: number;
   assembly_tokens: number;
   assembly_over_budget: boolean;
   applied_detail: string;
@@ -239,6 +244,8 @@ export interface AssembledComponent {
   content: string;
   tokens: number;
   included: boolean;
+  /** 被上下文面板排除（仍在列表中展示以便恢复勾选） */
+  excluded: boolean;
   missing_hint: string | null;
 }
 

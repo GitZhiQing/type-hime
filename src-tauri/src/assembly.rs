@@ -139,6 +139,8 @@ pub struct AssembledComponent {
     pub tokens: u64,
     /// false = 上游产物缺失，未装配
     pub included: bool,
+    /// 被上下文面板排除（R3：仍在列表中展示以便恢复勾选；不进 prompt、不计入 total）
+    pub excluded: bool,
     pub missing_hint: Option<String>,
 }
 
@@ -188,16 +190,15 @@ fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Resul
     let mut filtered = 0usize;
 
     let mut push = |name: String, content: Option<String>, hint: &str| {
-        // 组件级排除（上下文面板开关；仅影响装配展示/注入，不触碰可见性红线）
-        if opts.exclude_components.iter().any(|e| e == &name) {
-            return;
-        }
+        // 组件级排除（上下文面板开关；仍在列表中展示以便恢复，不进 prompt、不计入总量）
+        let excluded = opts.exclude_components.iter().any(|e| e == &name);
         match content {
             Some(c) if !c.trim().is_empty() => components.push(AssembledComponent {
                 tokens: estimate_tokens(&c),
                 name,
                 content: c,
                 included: true,
+                excluded,
                 missing_hint: None,
             }),
             _ => components.push(AssembledComponent {
@@ -205,6 +206,7 @@ fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Resul
                 content: String::new(),
                 tokens: 0,
                 included: false,
+                excluded,
                 missing_hint: Some(hint.to_string()),
             }),
         }
@@ -339,7 +341,12 @@ fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Resul
     let system = format!("# 文风指令\n{style}\n\n# 阶段任务\n{stage_task}");
     let system_tokens = estimate_tokens(&system);
 
-    let total = system_tokens + components.iter().map(|c| c.tokens).sum::<u64>();
+    let total = system_tokens
+        + components
+            .iter()
+            .filter(|c| !c.excluded)
+            .map(|c| c.tokens)
+            .sum::<u64>();
     let detail_label = match detail {
         Detail::Full => "full",
         Detail::NameOnly => "name_only",
@@ -389,7 +396,7 @@ fn previous_chapter(work_dir: &Path, opts: &AssemblyOptions) -> Option<(String, 
 pub fn render_prompt(result: &AssemblyResult) -> String {
     let mut out = String::new();
     for c in &result.components {
-        if c.included {
+        if c.included && !c.excluded {
             out.push_str(&format!("\n\n# {}\n{}", c.name, c.content));
         }
     }
@@ -487,6 +494,21 @@ mod tests {
         let r4 = assemble(&dir, &opts3).unwrap();
         assert!(!r4.over_budget);
         assert!(r4.warning.is_none());
+
+        // 组件排除（R3）：仍在列表中可展示（便于恢复勾选），但不进 prompt、不计入 total
+        let mut opts5 = AssemblyOptions::default();
+        opts5.chapter = "ch-002".into();
+        opts5.token_budget = 1_000_000;
+        opts5.exclude_components = vec!["账本摘要".into()];
+        let r5 = assemble(&dir, &opts5).unwrap();
+        let led = r5
+            .components
+            .iter()
+            .find(|c| c.name == "账本摘要")
+            .expect("排除的组件应仍在列表中");
+        assert!(led.excluded);
+        assert!(!render_prompt(&r5).contains("炼气三层"), "排除组件不进 prompt");
+        assert!(r5.total_tokens < r4.total_tokens, "排除组件不计入总量");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

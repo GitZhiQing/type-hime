@@ -49,6 +49,7 @@ async fn run_and_save_session(
         title: None,
         messages: Vec::new(),
         usage: None,
+        last_usage: None,
     });
     let history = sess.messages.clone();
     let sink = Arc::clone(on_event);
@@ -62,6 +63,7 @@ async fn run_and_save_session(
     )
     .await?;
     sess.messages.extend(outcome.messages);
+    sess.last_usage = outcome.usage;
     sess.usage = merge_usage(sess.usage, outcome.usage);
     session::save_session(store, &sess)
 }
@@ -241,6 +243,7 @@ pub async fn generate_artifact_flow(
         title: None,
         messages: Vec::new(),
         usage: None,
+        last_usage: None,
     };
     let sink = Arc::clone(&on_event);
     let outcome = kernel::run(
@@ -387,6 +390,7 @@ pub async fn review_flow(
         title: None,
         messages: outcome.messages,
         usage: outcome.usage,
+        last_usage: outcome.usage,
     };
     let _ = session::save_session(&SessionStore::Work(work_dir.clone()), &sess);
 
@@ -560,8 +564,12 @@ pub async fn tidy_flow(
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ContextOverview {
-    /// 本会话真实用量（provider 计数；会话不存在或未跑过时为 None）
+    /// 会话全部轮次累计用量（成本参考；provider 计数）
     pub session_usage: Option<kernel::UsageReport>,
+    /// 最近一轮输入 tokens（≈ 当前对话历史大小，窗口占用口径）
+    pub last_input_tokens: Option<u64>,
+    /// 最近一轮输入占窗口比例（0-100，两位小数；无会话轮次时为 0）
+    pub session_percent: f64,
     /// 装配估算总量（D9 估算口径）
     pub assembly_tokens: u64,
     /// 装配估算是否超预算（R3 起仅软提示，不拦截）
@@ -582,9 +590,10 @@ pub fn context_overview(
     chapter: &str,
 ) -> Result<ContextOverview, String> {
     let work_dir = PathBuf::from(work_path);
-    let session_usage = session_id
-        .and_then(|id| session::load_session(&SessionStore::Work(work_dir.clone()), id).ok())
-        .and_then(|s| s.usage);
+    let sess = session_id
+        .and_then(|id| session::load_session(&SessionStore::Work(work_dir.clone()), id).ok());
+    let session_usage = sess.as_ref().and_then(|s| s.usage);
+    let last_input_tokens = sess.as_ref().and_then(|s| s.last_usage).map(|u| u.input_tokens);
 
     let mut opts = assembly::AssemblyOptions::default();
     opts.volume = volume;
@@ -597,11 +606,16 @@ pub fn context_overview(
         .unwrap_or(crate::settings::DEFAULT_CONTEXT_WINDOW)
         .max(1);
 
+    let session_percent = last_input_tokens
+        .map(|t| ((t as f64 / context_window as f64) * 10000.0).round() / 100.0)
+        .unwrap_or(0.0);
     let assembly_percent =
         ((assembled.total_tokens as f64 / context_window as f64) * 10000.0).round() / 100.0;
 
     Ok(ContextOverview {
         session_usage,
+        last_input_tokens,
+        session_percent,
         assembly_tokens: assembled.total_tokens,
         assembly_over_budget: assembled.over_budget,
         applied_detail: assembled.applied_detail,

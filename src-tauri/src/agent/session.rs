@@ -16,9 +16,12 @@ pub struct Session {
     #[serde(default)]
     pub title: Option<String>,
     pub messages: Vec<Message>,
-    /// 本次运行的 token 用量（provider 真实计数）
+    /// 会话全部轮次累计用量（成本参考）
     #[serde(default)]
     pub usage: Option<crate::agent::kernel::UsageReport>,
+    /// 最近一轮用量（R3：窗口占用口径 = 最近一轮 input_tokens ≈ 当前对话历史大小）
+    #[serde(default)]
+    pub last_usage: Option<crate::agent::kernel::UsageReport>,
 }
 
 /// 会话列表项（前端展示与搜索过滤；title 已做回退填充）。
@@ -230,6 +233,7 @@ mod tests {
             title: None,
             messages: Vec::new(),
             usage: None,
+            last_usage: None,
         }
     }
 

@@ -74,6 +74,7 @@ let new_messages = outcome_final_text.messages;
         title: None,
         messages: new_messages,
         usage: None,
+        last_usage: None,
     };
     let store = type_hime_lib::agent::session::SessionStore::Work(work_dir.clone());
     type_hime_lib::agent::session::save_session(&store, &sess)?;
