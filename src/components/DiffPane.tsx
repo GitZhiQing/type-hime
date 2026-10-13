@@ -5,9 +5,8 @@ import { collapseContext } from "@/lib/diff";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "cn";
-import { Check, FilePlus2, Loader2, X } from "lucide-react";
+import { Check, Eye, FilePlus2, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface DiffPaneProps {
@@ -18,39 +17,14 @@ interface DiffPaneProps {
 export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
-  const [autoLedger, setAutoLedger] = useState(
-    () => localStorage.getItem("type-hime:auto-ledger") === "1",
-  );
-
-  function toggleAutoLedger(v: boolean) {
-    setAutoLedger(v);
-    localStorage.setItem("type-hime:auto-ledger", v ? "1" : "0");
-  }
 
   useEffect(() => {
     let alive = true;
     const reload = () => api.listProposals().then((p) => alive && setProposals(p));
     reload();
-    const un = listenCompat<Proposal>("review:new", (event) => {
-      // 账本回写半自动：开关开启时，账本提议自动接受（低风险结构化更新）
-      const p = event.payload;
-      if (
-        autoLedger &&
-        p.rel_path.endsWith("账本.md") &&
-        p.work_path === workPath
-      ) {
-        api
-          .applyProposal(workPath, p.id)
-          .then(() => {
-            toast.success(`已自动接受账本回写（提议 #${p.id}）`);
-            onApplied();
-          })
-          .catch(() => reload());
-        return;
-      }
-      reload();
-    });
-    // 聊天内联提议卡片处理后同步本列表（R2-③）
+    // 自动接受已并入权限档位（R4-③：完全访问档提议自动应用，此列只收人工审阅项）
+    const un = listenCompat<Proposal>("review:new", () => reload());
+    // 聊天内联提议卡片处理后同步本列表（R2-③）；自动应用亦经此刷新
     const onReviewChanged = () => reload();
     window.addEventListener("review:changed", onReviewChanged);
     return () => {
@@ -59,7 +33,7 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
       un.then((f) => f());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoLedger, workPath]);
+  }, [workPath]);
 
   async function act(id: number, accept: boolean) {
     setBusyId(id);
@@ -92,10 +66,10 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
         <div>暂无待审提议。AI 的修改会以提议出现在这里，接受才落盘。</div>
-        <label className="flex items-center gap-2 text-xs">
-          <Switch checked={autoLedger} onCheckedChange={toggleAutoLedger} />
-          账本回写自动接受（低风险结构化更新）
-        </label>
+        <div className="text-xs">
+          「账本回写自动接受」已并入权限档位：会话切「完全访问」后提议自动应用
+          （可见性变更仍需人工）。
+        </div>
       </div>
     );
   }
@@ -117,6 +91,12 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
               <span className="truncate font-mono text-xs" title={p.rel_path}>
                 {p.rel_path}
               </span>
+              {p.requires_review && (
+                <Badge variant="outline" className="shrink-0 border-amber-500/50 text-amber-600">
+                  <Eye data-icon="inline-start" />
+                  可见性变更 · 必须人工
+                </Badge>
+              )}
               <span className="ml-auto flex gap-1">
                 <Button
                   size="sm"

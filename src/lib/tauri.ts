@@ -176,7 +176,22 @@ export type AgentEvent =
   | { type: "sub_task_delta"; id: string; text: string }
   | { type: "sub_task_tool_call"; id: string; name: string; args: string }
   | { type: "sub_task_tool_result"; id: string; name: string; output: string }
-  | { type: "sub_task_end"; id: string; status: string; summary: string };
+  | { type: "sub_task_end"; id: string; status: string; summary: string }
+  | { type: "proposal_applied"; id: number; rel_path: string; result: string };
+
+/** 权限档位（R4 · D30：会话级两档） */
+export type PermissionMode = "confirm" | "full_access";
+
+/** 权限覆盖条目（bash 命令模式 / propose_* 路径模式） */
+export interface ToolOverride {
+  tool: string;
+  pattern: string | null;
+  mode: PermissionMode;
+}
+
+export interface PermissionConfig {
+  overrides: ToolOverride[];
+}
 
 /** 工具审批请求（R4：确认档 bash 等逐条确认；Confirmation 卡数据源） */
 export interface ApprovalRequestView {
@@ -192,6 +207,8 @@ export interface SessionMeta {
   title: string;
   preview: string;
   created_at: string;
+  /** 权限档位（R4：输入框左下角下拉的当前值） */
+  permission_mode: PermissionMode;
 }
 
 export interface SkillMeta {
@@ -261,6 +278,8 @@ export interface Proposal {
   diff: string;
   reason: string;
   is_new_file: boolean;
+  /** 触及可见性 frontmatter（必须人工审阅，永不被完全访问档自动应用） */
+  requires_review: boolean;
   created_at: string;
 }
 
@@ -403,6 +422,17 @@ export const api = {
   decideApproval: (id: number, allow: boolean) =>
     call<boolean>("decide_approval", { id, allow }),
   listApprovals: () => call<ApprovalRequestView[]>("list_approvals"),
+
+  // 权限（R4-①：档位存会话档案，覆盖表存 project.json）
+  setSessionPermissionMode: (
+    workPath: string,
+    sessionId: string,
+    mode: PermissionMode,
+  ) => call<void>("set_session_permission_mode", { workPath, sessionId, mode }),
+  getPermissionConfig: (workPath: string) =>
+    call<PermissionConfig>("get_permission_config", { workPath }),
+  setPermissionConfig: (workPath: string, overrides: ToolOverride[]) =>
+    call<void>("set_permission_config", { workPath, overrides }),
 
   // 装配
   previewAssembly: (

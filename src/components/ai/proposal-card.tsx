@@ -72,6 +72,11 @@ export function ProposalCard({ item, workPath, onResolved }: ProposalCardProps) 
         <span className="truncate font-mono text-xs" title={p.rel_path}>
           {p.rel_path}
         </span>
+        {p.requires_review && (
+          <Badge variant="outline" className="shrink-0 border-amber-500/50 text-amber-600">
+            可见性变更 · 必须人工
+          </Badge>
+        )}
         <span className="ml-auto flex items-center gap-1">
           {item.status === "pending" ? (
             <>

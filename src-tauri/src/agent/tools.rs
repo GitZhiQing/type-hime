@@ -163,6 +163,48 @@ impl ToolCtx {
             .map(|p| p.resolve(tool, subject))
             .unwrap_or_default()
     }
+
+    /// 完全访问档自动应用提议（R4-③ · D30/D32）：requires_review 的提议永不自动。
+    /// 返回 Some(工具回执) 表示已自动应用（或尝试后失败，提议仍在队列）。
+    pub fn maybe_auto_apply(&self, p: &Proposal) -> Option<String> {
+        let tool = if p.is_new_file {
+            "propose_write"
+        } else {
+            "propose_edit"
+        };
+        let mode = self.resolve_mode(tool, Some(&p.rel_path));
+        if mode != crate::permissions::PermissionMode::FullAccess || p.requires_review {
+            return None;
+        }
+        let taken = self
+            .queue
+            .lock()
+            .unwrap()
+            .list()
+            .into_iter()
+            .find(|x| x.id == p.id)?;
+        match crate::review::apply(&self.work_root, taken) {
+            Ok(msg) => {
+                // 成功后从队列移除
+                self.queue.lock().unwrap().take(p.id);
+                if let Some(sink) = &self.event_sink {
+                    sink(AgentEvent::ProposalApplied {
+                        id: p.id,
+                        rel_path: p.rel_path.clone(),
+                        result: msg.clone(),
+                    });
+                }
+                Some(format!(
+                    "已按「完全访问」档自动应用提议 #{}（{}）：{}。",
+                    p.id, p.rel_path, msg
+                ))
+            }
+            Err(e) => Some(format!(
+                "[自动应用失败] 提议 #{} 仍在审阅队列，等待人工处理：{e}",
+                p.id
+            )),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +321,9 @@ impl Tool for ProposeEdit {
                         requires_review,
                     );
                 (self.ctx.on_proposal)(&p);
+                if let Some(receipt) = self.ctx.maybe_auto_apply(&p) {
+                    return Ok(receipt);
+                }
                 format!(
                     "已生成修改提议 #{}（{}）{}，等待作者在 diff 审阅中处理；在作者处理前不要重复提交同一修改。",
                     p.id,
@@ -359,6 +404,9 @@ impl Tool for ProposeWrite {
             requires_review,
         );
         (self.ctx.on_proposal)(&p);
+        if let Some(receipt) = self.ctx.maybe_auto_apply(&p) {
+            return Ok(receipt);
+        }
         Ok(format!(
             "已生成新建提议 #{}（{}）{}，等待作者在 diff 审阅中处理。",
             p.id,

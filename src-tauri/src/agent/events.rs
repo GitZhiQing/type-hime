@@ -56,4 +56,10 @@ pub enum AgentEvent {
         status: String,
         summary: String,
     },
+    /// 提议已被自动应用（R4：完全访问档；前端同步内联卡与审阅列表）
+    ProposalApplied {
+        id: u64,
+        rel_path: String,
+        result: String,
+    },
 }

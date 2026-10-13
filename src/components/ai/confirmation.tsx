@@ -18,9 +18,12 @@ export interface ApprovalView {
 export function ConfirmationCard({
   approval,
   onDecide,
+  onGrantFullAccess,
 }: {
   approval: ApprovalView;
   onDecide: (id: number, allow: boolean) => void;
+  /** 允许并切本会话为「完全访问」（ZCode grantPermissionFullAccess 同款语义） */
+  onGrantFullAccess?: (id: number) => void;
 }) {
   const { status } = approval;
   return (
@@ -54,7 +57,7 @@ export function ConfirmationCard({
       )}
       {approval.note && <div className="mt-1 text-xs text-amber-600">{approval.note}</div>}
       {status === "pending" && (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <Button size="sm" className="h-7 px-3 text-xs" onClick={() => onDecide(approval.id, true)}>
             允许
           </Button>
@@ -66,6 +69,17 @@ export function ConfirmationCard({
           >
             拒绝
           </Button>
+          {onGrantFullAccess && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto h-7 px-2 text-xs text-amber-600"
+              title="允许本次并将会话切为「完全访问」：后续白名单命令直通、提议自动应用"
+              onClick={() => onGrantFullAccess(approval.id)}
+            >
+              允许并本会话完全访问
+            </Button>
+          )}
         </div>
       )}
     </div>

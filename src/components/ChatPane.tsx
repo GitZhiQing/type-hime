@@ -6,6 +6,7 @@ import {
   AgentEvent,
   MessageView,
   Proposal,
+  PermissionMode,
   TreeNode,
 } from "@/lib/tauri";
 import { toast } from "sonner";
@@ -33,6 +34,7 @@ import {
 import { ProposalCard, type InlineProposal } from "@/components/ai/proposal-card";
 import { ConfirmationCard, type ApprovalView } from "@/components/ai/confirmation";
 import { TaskCard, type TaskView } from "@/components/ai/task";
+import { PermissionSelect } from "@/components/PermissionSelect";
 import { SLASH_DEFS, parseSlash, runSlash } from "@/lib/slash";
 
 interface ChatProps {
@@ -94,6 +96,8 @@ export function ChatPane({
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
   /** 本轮的子任务卡（R4：run_flow 长流程的过程展示） */
   const [subtasks, setSubtasks] = useState<TaskView[]>([]);
+  /** 当前会话权限档位（R4-③：输入框左下角下拉；scope=work） */
+  const [permMode, setPermMode] = useState<PermissionMode>("confirm");
   const busyRef = useRef(false);
 
   const isWork = scope === "work" && !!workPath;
@@ -140,6 +144,47 @@ export function ChatPane({
     p.then(setMessages).catch(() => setMessages([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, workPath, sessionId]);
+
+  // 权限档位：随会话加载/切换（R4-③）
+  useEffect(() => {
+    if (!isWork || !workPath || !sessionId) return;
+    let alive = true;
+    api
+      .listSessions(workPath)
+      .then((list) => {
+        const cur = list.find((s) => s.id === sessionId);
+        if (alive && cur) setPermMode(cur.permission_mode);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWork, workPath, sessionId]);
+
+  /** 切换会话权限档位（无会话时先建会话） */
+  async function changePermissionMode(mode: PermissionMode) {
+    if (!isWork || !workPath) return;
+    const sid = sessionId ?? onNewSession();
+    try {
+      await api.setSessionPermissionMode(workPath, sid, mode);
+      setPermMode(mode);
+      toast.info(
+        mode === "full_access"
+          ? "已切为「完全访问」：提议自动应用（可见性变更除外）、白名单命令直通"
+          : "已切为「变更前确认」：提议逐条审阅、白名单命令逐条确认",
+      );
+      onTurnDone(); // 会话列表刷新（档位徽标）
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }
+
+  /** 审批卡升档：允许本次并切会话为完全访问 */
+  async function grantFullAccessAndAllow(id: number) {
+    await changePermissionMode("full_access");
+    await decideApproval(id, true);
+  }
 
   /** 输入变化 → 补全菜单触发检测（/ 开头命令、@ 素材引用） */
   function detectMenu(value: string) {
@@ -393,6 +438,15 @@ export function ChatPane({
             : t,
         ),
       );
+    } else if (ev.type === "proposal_applied") {
+      // 完全访问档自动应用（R4-③）：内联卡标记为已接受 + 通知审阅 Tab 刷新
+      setInlineProposals((list) =>
+        list.map((it) =>
+          it.proposal.id === ev.id ? { ...it, status: "accepted" as const } : it,
+        ),
+      );
+      window.dispatchEvent(new CustomEvent("review:changed"));
+      toast.success(`已自动应用提议 #${ev.id}（${ev.rel_path}）`);
     }
     setStreaming((s) => {
       if (!s) return s;
@@ -486,7 +540,12 @@ export function ChatPane({
           {approvals.length > 0 && (
             <div className="flex flex-col gap-2">
               {approvals.map((a) => (
-                <ConfirmationCard key={a.id} approval={a} onDecide={decideApproval} />
+                <ConfirmationCard
+                  key={a.id}
+                  approval={a}
+                  onDecide={decideApproval}
+                  onGrantFullAccess={isWork ? grantFullAccessAndAllow : undefined}
+                />
               ))}
             </div>
           )}
@@ -566,6 +625,13 @@ export function ChatPane({
             />
           </PromptInputBody>
           <PromptInputToolbar>
+            {isWork && workPath && (
+              <PermissionSelect
+                workPath={workPath}
+                mode={permMode}
+                onChange={changePermissionMode}
+              />
+            )}
             <PromptInputSubmit />
           </PromptInputToolbar>
         </PromptInput>
