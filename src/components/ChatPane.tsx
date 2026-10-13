@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Channel } from "@tauri-apps/api/core";
-import { api, AgentEvent, MessageView } from "@/lib/tauri";
+import { api, makeChannel, AgentEvent, MessageView } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -70,7 +69,7 @@ export function ChatPane({ workPath }: ChatProps) {
     setMessages((m) => [...m, { role: "user", text: prompt }]);
     setStreaming({ text: "", toolTrace: [] });
 
-    const channel = new Channel<AgentEvent>();
+    const channel = makeChannel<AgentEvent>();
     channel.onmessage = (ev) => {
       setStreaming((s) => {
         if (!s) return s;

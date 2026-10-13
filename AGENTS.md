@@ -17,6 +17,8 @@ cargo run --example full_flow -- <作品目录>       # 冒烟：章纲→正文
 cargo run --example mvp_flow                       # 交付判据验收（真实模型全流程）
 cargo run --example write_book -- <作品目录>      # 写书测试（6章全流程+埋错审校验证）
 cargo run --example regression                     # 修复回归（2章+8项检查）
+cargo run --example webapi                         # Web 测试通道（127.0.0.1:18360，配合 pnpm dev
+                                                   #   的 /api 代理，浏览器可自动化测试真实后端）
 ```
 
 ## 目录速览

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Channel } from "@tauri-apps/api/core";
-import { api, AgentEvent, IssueRecord } from "@/lib/tauri";
+import { api, makeChannel, EventChannel, AgentEvent, IssueRecord } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -64,13 +63,13 @@ export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
 
   async function run(
     kind: Target,
-    invoke: (ch: Channel<AgentEvent>) => Promise<void>,
+    invoke: (ch: import("@/lib/tauri").EventChannel<AgentEvent>) => Promise<void>,
   ) {
     setBusy(kind);
     setStreamText("");
     setTrace([]);
     setDoneHint("");
-    const channel = new Channel<AgentEvent>();
+    const channel = makeChannel<AgentEvent>();
     channel.onmessage = (ev) => {
       if (ev.type === "text_delta") {
         setStreamText((t) => t + ev.text);
@@ -99,7 +98,7 @@ export function GeneratePane({ workPath, onProposal }: GeneratePaneProps) {
   function fire(target: Target) {
     const invocations: Record<
       Target,
-      (channel: Channel<AgentEvent>) => Promise<void>
+      (channel: EventChannel<AgentEvent>) => Promise<void>
     > = {
       chapter_outline: (c) => api.generateArtifact(workPath, vol, ch, "chapter_outline", c),
       chapter: (c) => api.generateArtifact(workPath, vol, ch, "chapter", c),

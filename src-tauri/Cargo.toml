@@ -30,7 +30,8 @@ schemars = "1"
 similar = "2"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "net", "sync"] }
+axum = "0.8"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

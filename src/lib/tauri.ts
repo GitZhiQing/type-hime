@@ -1,4 +1,101 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+// ---------------------------------------------------------------------------
+// 传输层适配（D18）：Tauri IPC（桌面）或 HTTP+SSE（浏览器测试通道，配合
+// `cargo run --example webapi` + vite /api 代理）。对上层 API 完全透明。
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** 流式事件通道（Tauri Channel 与 Web 实现的共同接口） */
+export interface EventChannel<T> {
+  onmessage: ((message: T) => void) | null;
+}
+
+class WebChannel<T> implements EventChannel<T> {
+  onmessage: ((message: T) => void) | null = null;
+}
+
+export function makeChannel<T>(): EventChannel<T> {
+  if (isTauri) return new Channel<T>() as unknown as EventChannel<T>;
+  return new WebChannel<T>();
+}
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (isTauri) return invoke<T>(cmd, args ?? {});
+  const res = await fetch(`/api/${cmd}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args ?? {}),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`);
+  return data as T;
+}
+
+/** 流式命令：Tauri 走 Channel，Web 走 SSE 流解析 */
+async function callStream<T>(
+  cmd: string,
+  args: Record<string, unknown>,
+  channel: EventChannel<T>,
+): Promise<void> {
+  if (isTauri) {
+    return invoke<void>(cmd, { ...args, onEvent: channel as unknown as Channel<T> });
+  }
+  const res = await fetch(`/api/${cmd}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => null);
+    throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      for (const line of chunk.split("\n")) {
+        if (line.startsWith("data:")) {
+          const payload = line.slice(5).trim();
+          if (payload && channel.onmessage) {
+            channel.onmessage(JSON.parse(payload) as T);
+          }
+        }
+      }
+    }
+  }
+}
+
+/** 事件订阅：Tauri 走 listen，Web 走 EventSource（/api/events 广播频道） */
+export async function listenCompat<T>(
+  event: string,
+  handler: (e: { payload: T }) => void,
+): Promise<() => void> {
+  if (isTauri) {
+    const un = await listen<T>(event, handler);
+    return () => {
+      un();
+    };
+  }
+  const es = new EventSource("/api/events");
+  es.onmessage = (msg: MessageEvent) => {
+    try {
+      const data = JSON.parse(msg.data as string) as { event: string; payload: T };
+      if (data?.event === event) handler({ payload: data.payload });
+    } catch {
+      /* 忽略非 JSON 帧与 keep-alive */
+    }
+  };
+  return () => es.close();
+}
 
 export interface WorkSummary {
   name: string;
@@ -134,27 +231,27 @@ export interface IssueRecord {
 }
 
 export const api = {
-  getWorksRoot: () => invoke<string>("get_works_root"),
-  listWorks: () => invoke<WorkSummary[]>("list_works"),
+  getWorksRoot: () => call<string>("get_works_root"),
+  listWorks: () => call<WorkSummary[]>("list_works"),
   createWork: (name: string, base?: string) =>
-    invoke<WorkSummary>("create_work", { name, base: base ?? null }),
-  readTree: (workPath: string) => invoke<TreeNode>("read_tree", { workPath }),
+    call<WorkSummary>("create_work", { name, base: base ?? null }),
+  readTree: (workPath: string) => call<TreeNode>("read_tree", { workPath }),
   readFile: (workPath: string, relPath: string) =>
-    invoke<string>("read_file", { workPath, relPath }),
+    call<string>("read_file", { workPath, relPath }),
   writeFile: (workPath: string, relPath: string, content: string) =>
-    invoke<void>("write_file", { workPath, relPath, content }),
+    call<void>("write_file", { workPath, relPath, content }),
   createFile: (workPath: string, relPath: string, content: string) =>
-    invoke<void>("create_file", { workPath, relPath, content }),
+    call<void>("create_file", { workPath, relPath, content }),
   deleteFile: (workPath: string, relPath: string) =>
-    invoke<void>("delete_file", { workPath, relPath }),
+    call<void>("delete_file", { workPath, relPath }),
   restoreFile: (workPath: string, relPath: string) =>
-    invoke<void>("restore_file", { workPath, relPath }),
+    call<void>("restore_file", { workPath, relPath }),
   gitLog: (workPath: string, limit?: number) =>
-    invoke<string[]>("git_log", { workPath, limit: limit ?? null }),
+    call<string[]>("git_log", { workPath, limit: limit ?? null }),
 
   // 设置
-  getSettings: () => invoke<SettingsView>("get_settings"),
-  listProviderPresets: () => invoke<ProviderPreset[]>("list_provider_presets"),
+  getSettings: () => call<SettingsView>("get_settings"),
+  listProviderPresets: () => call<ProviderPreset[]>("list_provider_presets"),
   upsertProvider: (
     id: string,
     name: string,
@@ -163,7 +260,7 @@ export const api = {
     defaultModel: string,
     activate: boolean,
   ) =>
-    invoke<void>("upsert_provider", {
+    call<void>("upsert_provider", {
       id,
       name,
       baseUrl,
@@ -171,31 +268,31 @@ export const api = {
       defaultModel,
       activate,
     }),
-  removeProvider: (id: string) => invoke<void>("remove_provider", { id }),
+  removeProvider: (id: string) => call<void>("remove_provider", { id }),
   setActiveProvider: (id: string) =>
-    invoke<void>("set_active_provider", { id }),
+    call<void>("set_active_provider", { id }),
   testProvider: (baseUrl: string, apiKey: string, model: string) =>
-    invoke<string>("test_provider", { baseUrl, apiKey, model }),
+    call<string>("test_provider", { baseUrl, apiKey, model }),
   listModels: (baseUrl: string, apiKey: string) =>
-    invoke<string[]>("list_models", { baseUrl, apiKey }),
+    call<string[]>("list_models", { baseUrl, apiKey }),
   setAgentModelOverride: (agentId: string, model: string | null) =>
-    invoke<void>("set_agent_model_override", { agentId, model }),
+    call<void>("set_agent_model_override", { agentId, model }),
 
   // 流水线
   getPipeline: (workPath: string) =>
-    invoke<PipelineView>("get_pipeline", { workPath }),
+    call<PipelineView>("get_pipeline", { workPath }),
   pipelineEnter: (workPath: string, stage: Stage) =>
-    invoke<PipelineView>("pipeline_enter", { workPath, stage }),
+    call<PipelineView>("pipeline_enter", { workPath, stage }),
   pipelineConfirm: (workPath: string, stage: Stage) =>
-    invoke<PipelineView>("pipeline_confirm", { workPath, stage }),
+    call<PipelineView>("pipeline_confirm", { workPath, stage }),
   pipelineSkip: (workPath: string, stage: Stage) =>
-    invoke<PipelineView>("pipeline_skip", { workPath, stage }),
+    call<PipelineView>("pipeline_skip", { workPath, stage }),
   pipelineRedo: (workPath: string, stage: Stage) =>
-    invoke<PipelineView>("pipeline_redo", { workPath, stage }),
+    call<PipelineView>("pipeline_redo", { workPath, stage }),
 
   // 设定库 + 账本
   listSettings: (workPath: string) =>
-    invoke<SettingMeta[]>("list_settings", { workPath }),
+    call<SettingMeta[]>("list_settings", { workPath }),
   createSetting: (
     workPath: string,
     kind: string,
@@ -204,7 +301,7 @@ export const api = {
     hidden: boolean,
     openAtVol: number | null,
   ) =>
-    invoke<SettingMeta>("create_setting", {
+    call<SettingMeta>("create_setting", {
       workPath,
       kind,
       name,
@@ -218,19 +315,19 @@ export const api = {
     hidden: boolean,
     openAtVol: number | null,
   ) =>
-    invoke<void>("set_setting_visibility", {
+    call<void>("set_setting_visibility", {
       workPath,
       relPath,
       hidden,
       openAtVol,
     }),
-  getLedger: (workPath: string) => invoke<Ledger>("get_ledger", { workPath }),
+  getLedger: (workPath: string) => call<Ledger>("get_ledger", { workPath }),
 
   // diff 审阅
-  listProposals: () => invoke<Proposal[]>("list_proposals"),
+  listProposals: () => call<Proposal[]>("list_proposals"),
   applyProposal: (workPath: string, id: number) =>
-    invoke<string>("apply_proposal", { workPath, id }),
-  rejectProposal: (id: number) => invoke<void>("reject_proposal", { id }),
+    call<string>("apply_proposal", { workPath, id }),
+  rejectProposal: (id: number) => call<void>("reject_proposal", { id }),
 
   // 装配
   previewAssembly: (
@@ -240,7 +337,7 @@ export const api = {
     settingDetail: "full" | "name_only",
     tokenBudget: number,
   ) =>
-    invoke<AssemblyResult>("preview_assembly", {
+    call<AssemblyResult>("preview_assembly", {
       workPath,
       volume,
       chapter,
@@ -254,55 +351,61 @@ export const api = {
     volume: number,
     chapter: string,
     target: "chapter_outline" | "chapter",
-    onEvent: Channel<AgentEvent>,
+    onEvent: EventChannel<AgentEvent>,
   ) =>
-    invoke<void>("generate_artifact", { workPath, volume, chapter, target, onEvent }),
+    callStream<AgentEvent>("generate_artifact", { workPath, volume, chapter, target }, onEvent),
   proposeLedgerUpdate: (
     workPath: string,
     volume: number,
     chapter: string,
-    onEvent: Channel<AgentEvent>,
+    onEvent: EventChannel<AgentEvent>,
   ) =>
-    invoke<void>("propose_ledger_update", {
-      workPath,
-      volume,
-      chapter,
+    callStream<AgentEvent>(
+      "propose_ledger_update",
+      {
+        workPath,
+        volume,
+        chapter,
+      },
       onEvent,
-    }),
+    ),
   reviewChapter: (
     workPath: string,
     volume: number,
     chapter: string,
     mode: "consistency" | "deai",
-    onEvent: Channel<AgentEvent>,
+    onEvent: EventChannel<AgentEvent>,
   ) =>
-    invoke<void>("review_chapter", {
-      workPath,
-      volume,
-      chapter,
-      mode,
+    callStream<AgentEvent>(
+      "review_chapter",
+      {
+        workPath,
+        volume,
+        chapter,
+        mode,
+      },
       onEvent,
-    }),
+    ),
   recheckChapter: (
     workPath: string,
     volume: number,
     chapter: string,
-    onEvent: Channel<AgentEvent>,
-  ) => invoke<void>("recheck_chapter", { workPath, volume, chapter, onEvent }),
+    onEvent: EventChannel<AgentEvent>,
+  ) => callStream<AgentEvent>("recheck_chapter", { workPath, volume, chapter }, onEvent),
   reviewVolume: (
     workPath: string,
     volume: number,
-    onEvent: Channel<AgentEvent>,
-  ) => invoke<void>("review_volume", { workPath, volume, onEvent }),
+    onEvent: EventChannel<AgentEvent>,
+  ) => callStream<AgentEvent>("review_volume", { workPath, volume }, onEvent),
   listIssues: (workPath: string, chapter?: string) =>
-    invoke<IssueRecord[]>("list_issues", { workPath, chapter: chapter ?? null }),
+    call<IssueRecord[]>("list_issues", { workPath, chapter: chapter ?? null }),
   recordIssueRuling: (
     workPath: string,
     id: number,
     status: "fixed" | "dismissed" | "needs_ruling",
     note?: string,
   ) =>
-    invoke<void>("record_issue_ruling", {
+    call<void>("record_issue_ruling", {
       workPath,
       id,
       status,
@@ -311,25 +414,25 @@ export const api = {
 
   // 维护
   checkVisibilityLeak: (workPath: string) =>
-    invoke<string[]>("check_visibility_leak", { workPath }),
-  tidyLedger: (workPath: string, onEvent: Channel<AgentEvent>) =>
-    invoke<void>("tidy_ledger", { workPath, onEvent }),
+    call<string[]>("check_visibility_leak", { workPath }),
+  tidyLedger: (workPath: string, onEvent: EventChannel<AgentEvent>) =>
+    callStream<AgentEvent>("tidy_ledger", { workPath }, onEvent),
 
   // 成本账
   getUsageSummary: (workPath: string) =>
-    invoke<{ input_tokens: number; output_tokens: number }>("get_usage_summary", {
+    call<{ input_tokens: number; output_tokens: number }>("get_usage_summary", {
       workPath,
     }),
 
   // 会话
   listSessions: (workPath: string) =>
-    invoke<[string, string, string][]>("list_sessions", { workPath }),
+    call<[string, string, string][]>("list_sessions", { workPath }),
   loadSessionView: (workPath: string, sessionId: string) =>
-    invoke<MessageView[]>("load_session_view", { workPath, sessionId }),
+    call<MessageView[]>("load_session_view", { workPath, sessionId }),
   chatStream: (
     workPath: string,
     sessionId: string,
     prompt: string,
-    onEvent: Channel<AgentEvent>,
-  ) => invoke<void>("chat_stream", { workPath, sessionId, prompt, onEvent }),
+    onEvent: EventChannel<AgentEvent>,
+  ) => callStream<AgentEvent>("chat_stream", { workPath, sessionId, prompt }, onEvent),
 };

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { api, Proposal } from "@/lib/tauri";
+
+import { api, listenCompat, Proposal } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +56,7 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
     let alive = true;
     const reload = () => api.listProposals().then((p) => alive && setProposals(p));
     reload();
-    const un = listen<Proposal>("review:new", (event) => {
+    const un = listenCompat<Proposal>("review:new", (event) => {
       // 账本回写半自动：开关开启时，账本提议自动接受（低风险结构化更新）
       const p = event.payload;
       if (

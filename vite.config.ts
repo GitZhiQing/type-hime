@@ -25,6 +25,10 @@ export default defineConfig(() => ({
     port: 1420,
     strictPort: true,
     host: host || false,
+    // Web 测试通道：浏览器直连真实 Rust 后端（cargo run --example webapi）
+    proxy: {
+      "/api": "http://127.0.0.1:18360",
+    },
     hmr: host
       ? {
           protocol: "ws",

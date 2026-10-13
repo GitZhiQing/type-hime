@@ -1,0 +1,474 @@
+//! 流式命令的业务体：Tauri IPC（lib.rs）与 HTTP SSE（examples/webapi.rs）双入口共用。
+//! 回调参数化：事件与提议的产生方不关心传输层。
+
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use agent::events::AgentEvent;
+use agent::kernel;
+use agent::session::{self, Session};
+use agent::spec::{chat_spec, ledger_spec, ledger_tidy_spec, reviewer_spec, writer_spec, AgentSpec};
+use agent::tools::ToolCtx;
+use pipeline::Stage;
+use review::{Proposal, ReviewQueue};
+
+use crate::{agent, assembly, issues, ledger, pipeline, preflight, review, works};
+
+pub type EventSink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
+pub type ProposalSink = Arc<dyn Fn(&Proposal) + Send + Sync>;
+
+/// 累计 usage（None + x = x；Some + Some = 和）。
+fn merge_usage(
+    base: Option<agent::kernel::UsageReport>,
+    add: Option<agent::kernel::UsageReport>,
+) -> Option<agent::kernel::UsageReport> {
+    match (base, add) {
+        (None, None) => None,
+        (None, Some(u)) => Some(u),
+        (Some(b), None) => Some(b),
+        (Some(b), Some(u)) => Some(agent::kernel::UsageReport {
+            input_tokens: b.input_tokens + u.input_tokens,
+            output_tokens: b.output_tokens + u.output_tokens,
+        }),
+    }
+}
+
+/// 通用会话运行（chat / tidy 等单 prompt 场景）。
+async fn run_and_save_session(
+    sess_id: String,
+    work_dir: &PathBuf,
+    tool_ctx: &ToolCtx,
+    spec: &AgentSpec,
+    prompt: &str,
+    on_event: &EventSink,
+) -> Result<(), String> {
+    let settings = kernel::current_settings()?;
+    let mut sess = session::load_session(work_dir, &sess_id).unwrap_or(Session {
+        id: sess_id.clone(),
+        created_at: works::now_iso(),
+        messages: Vec::new(),
+        usage: None,
+    });
+    let history = sess.messages.clone();
+    let sink = Arc::clone(on_event);
+    let outcome = kernel::run(
+        &settings,
+        Some(tool_ctx),
+        spec,
+        history,
+        prompt,
+        move |ev| sink(ev),
+    )
+    .await?;
+    sess.messages.extend(outcome.messages);
+    sess.usage = merge_usage(sess.usage, outcome.usage);
+    session::save_session(work_dir, &sess)
+}
+
+/// 流式对话（旁路会话）：产物经提议审阅回流。
+pub async fn chat_flow(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_path: String,
+    session_id: String,
+    prompt: String,
+    on_event: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let spec = chat_spec();
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(queue),
+        on_proposal,
+        expect: None,
+    };
+    run_and_save_session(session_id, &work_dir, &tool_ctx, &spec, &prompt, &on_event).await
+}
+
+/// 生成章纲或正文。target: "chapter_outline" | "chapter"
+pub async fn generate_artifact_flow(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    target: String,
+    on_event: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let settings = kernel::current_settings()?;
+
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter.clone();
+    opts.stage = if target == "chapter_outline" {
+        Stage::ChapterOutline
+    } else {
+        Stage::Chapters
+    };
+
+    let assembled = assembly::assemble(&work_dir, &opts)?;
+    if assembled.over_budget {
+        return Err(format!(
+            "装配已自动降档至 {} 仍约 {} tokens，超出预算 {}；请精简账本/设定或提高预算",
+            assembled.applied_detail, assembled.total_tokens, opts.token_budget
+        ));
+    }
+
+    let (file_hint, stage_hint, expect) = if target == "chapter_outline" {
+        (
+            assembly::chapter_outline_path(volume, &chapter),
+            "撰写本章章纲（用 propose_write 提交，路径见下）",
+            Some(agent::tools::WriteExpect {
+                min_chars: 80,
+                max_chars: 800,
+                check_halfwidth: true,
+            }),
+        )
+    } else {
+        (
+            assembly::chapter_path(volume, &chapter),
+            "撰写本章正文全文（用 propose_write 提交，路径见下）",
+            Some(agent::tools::WriteExpect {
+                min_chars: 1500,
+                max_chars: 3800,
+                check_halfwidth: true,
+            }),
+        )
+    };
+
+    let mut spec = writer_spec(&assembled.system);
+    spec.sections.push((
+        "task".to_string(),
+        format!("{stage_hint}\n目标文件：{file_hint}"),
+    ));
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(queue),
+        on_proposal,
+        expect,
+    };
+
+    let prompt = format!(
+        "{}\n\n# 输出文件\n{file_hint}\n\n请开始工作：完成后用 propose_write 提交全文。",
+        assembly::render_prompt(&assembled)
+    );
+
+    let sess = Session {
+        id: format!("gen-{target}-{volume:02}-{chapter}"),
+        created_at: works::now_iso(),
+        messages: Vec::new(),
+        usage: None,
+    };
+    let sink = Arc::clone(&on_event);
+    let outcome = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| sink(ev),
+    )
+    .await?;
+    let mut sess = sess;
+    sess.messages = outcome.messages;
+    sess.usage = outcome.usage;
+    let _ = session::save_session(&work_dir, &sess);
+    Ok(())
+}
+
+/// 账本回写：读本章正文 + 账本 → ledger agent 提议更新。
+pub async fn ledger_update_flow(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    on_event: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let ch_path = assembly::chapter_path(volume, &chapter);
+    if !work_dir.join(&ch_path).exists() {
+        return Err(format!("本章正文不存在：{ch_path}（先完成正文生成与审阅）"));
+    }
+    let ledger_path = ledger::LEDGER_PATH;
+    let prompt = format!(
+        "第{volume}卷 {chapter} 已完稿。请先 read_file 读取正文 {ch_path} 与账本 {ledger_path}，\
+         然后 propose_edit 提交更新后的账本全文（路径 {ledger_path}）。"
+    );
+    let spec = ledger_spec();
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(queue),
+        on_proposal,
+        expect: None,
+    };
+    run_and_save_session(
+        format!("gen-ledger-{volume:02}-{chapter}"),
+        &work_dir,
+        &tool_ctx,
+        &spec,
+        &prompt,
+        &on_event,
+    )
+    .await
+}
+
+/// 审校（一致性 / 去 AI 味）：预检 + reviewer + 报告结构化落盘。
+pub async fn review_flow(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_dir: &PathBuf,
+    volume: u32,
+    chapter: &str,
+    mode: &str,
+    on_event: &EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let settings = kernel::current_settings()?;
+    let ch_path = assembly::chapter_path(volume, chapter);
+    if !work_dir.join(&ch_path).exists() {
+        return Err(format!("本章正文不存在：{ch_path}"));
+    }
+
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter.to_string();
+    opts.stage = Stage::Review;
+    let assembled = assembly::assemble(work_dir, &opts)?;
+
+    // 代码级预检（零 token）：结果流式输出并注入审校
+    let preflight_report = if mode != "deai" {
+        let text = works::read_file(work_dir, &ch_path)?;
+        let ledger = ledger::read_ledger(work_dir)?;
+        preflight::preflight_cultivation(&text, &ledger)
+    } else {
+        Vec::new()
+    };
+    if !preflight_report.is_empty() {
+        for line in &preflight_report {
+            on_event(AgentEvent::TextDelta {
+                text: format!("[代码预检] {line}\n"),
+            });
+        }
+    }
+
+    let mut spec = reviewer_spec(&assembled.system);
+    let task = if mode == "deai" {
+        format!(
+            "对 {ch_path} 执行「去 AI 味」：按文风指令改写整章，用 propose_edit 提交整章全文（路径 {ch_path}）。"
+        )
+    } else {
+        let preflight_block = if preflight_report.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n代码预检已发现以下确定问题（直接核实并纳入修复）：\n{}\n",
+                preflight_report
+                    .iter()
+                    .map(|s| format!("- {s}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        };
+        format!(
+            "对 {ch_path} 执行「一致性检查」：先 read 正文与账本/设定，输出编号问题清单；\
+             确定的硬伤用 propose_edit 提交修复（路径 {ch_path}），拿不准的只列清单。{preflight_block}"
+        )
+    };
+    spec.sections.push(("task".to_string(), task));
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(queue),
+        on_proposal,
+        expect: None,
+    };
+    let prompt = format!(
+        "{}\n\n# 待审章节\n{ch_path}\n\n请开始审校。",
+        assembly::render_prompt(&assembled)
+    );
+    let sink = Arc::clone(on_event);
+    let outcome = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| sink(ev),
+    )
+    .await?;
+    let report_text = outcome.text;
+
+    let sess = Session {
+        id: format!("review-{mode}-{volume:02}-{chapter}"),
+        created_at: works::now_iso(),
+        messages: outcome.messages,
+        usage: outcome.usage,
+    };
+    let _ = session::save_session(work_dir, &sess);
+
+    if mode == "consistency" && !report_text.trim().is_empty() {
+        let report_dir = work_dir.join("review");
+        let _ = std::fs::create_dir_all(&report_dir);
+        let _ = std::fs::write(report_dir.join(format!("报告-{chapter}.md")), &report_text);
+        let _ = issues::ingest_report(work_dir, chapter, "consistency", &report_text);
+        for p in &preflight_report {
+            let _ = issues::ingest_report(work_dir, chapter, "preflight", p);
+        }
+    }
+    Ok(())
+}
+
+/// 复检：对照上轮问题清单与裁决记录逐项验证。
+pub async fn recheck_flow(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_path: String,
+    volume: u32,
+    chapter: String,
+    on_event: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let settings = kernel::current_settings()?;
+    let ch_path = assembly::chapter_path(volume, &chapter);
+    if !work_dir.join(&ch_path).exists() {
+        return Err(format!("本章正文不存在：{ch_path}"));
+    }
+
+    let all = issues::list(&work_dir, Some(&chapter))?;
+    if all.is_empty() {
+        return Err(format!("{chapter} 没有审校记录，请先执行一致性检查"));
+    }
+    let dossier = all
+        .iter()
+        .map(|i| {
+            format!(
+                "- [#{}][{}] {}\n  裁决：{}",
+                i.id,
+                i.status,
+                i.text.replace('\n', " "),
+                i.ruling.clone().unwrap_or_else(|| "（未裁决）".into())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut opts = assembly::AssemblyOptions::default();
+    opts.volume = volume;
+    opts.chapter = chapter.clone();
+    opts.stage = Stage::Review;
+    let assembled = assembly::assemble(&work_dir, &opts)?;
+
+    let mut spec = reviewer_spec(&assembled.system);
+    spec.sections.push(("task".to_string(), format!(
+        "复检 {ch_path}：下面是上轮问题清单与作者裁决。逐项核验：\
+         (a) 已修复项确认修复生效；(b) 未裁决(open)项若为硬伤给出修复提议，若不成立说明理由建议驳回；\
+         (c) 输出「复检结论：通过/不通过 + 原因」。\n\n# 上轮问题清单\n{dossier}"
+    )));
+
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(queue),
+        on_proposal,
+        expect: None,
+    };
+    let prompt = format!(
+        "{}\n\n# 待复检章节\n{ch_path}\n\n请开始复检。",
+        assembly::render_prompt(&assembled)
+    );
+    let sink = Arc::clone(&on_event);
+    let outcome = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &prompt,
+        move |ev| sink(ev),
+    )
+    .await?;
+    if !outcome.text.trim().is_empty() {
+        let _ = issues::ingest_report(&work_dir, &chapter, "recheck", &outcome.text);
+    }
+    Ok(())
+}
+
+/// 卷级批审：逐章一致性检查，进度经事件流汇报。
+pub async fn review_volume_flow(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_path: String,
+    volume: u32,
+    on_event: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let chapters_dir = work_dir
+        .join(assembly::volume_dir(volume))
+        .join("chapters");
+    let mut chapters: Vec<String> = std::fs::read_dir(&chapters_dir)
+        .map_err(|e| format!("读取章节目录失败：{e}"))?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".md") && !name.contains("-章纲") {
+                Some(name.trim_end_matches(".md").to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    chapters.sort();
+    if chapters.is_empty() {
+        return Err(format!("第 {volume} 卷没有正文章节"));
+    }
+
+    on_event(AgentEvent::TextDelta {
+        text: format!("[卷级批审] 共 {} 章：{}\n", chapters.len(), chapters.join("、")),
+    });
+    let mut failed = Vec::new();
+    for ch in &chapters {
+        on_event(AgentEvent::TextDelta {
+            text: format!("\n[卷级批审] 开始 {ch} …\n"),
+        });
+        if let Err(e) = review_flow(queue, &work_dir, volume, ch, "consistency", &on_event, Arc::clone(&on_proposal)).await {
+            failed.push(format!("{ch}: {e}"));
+        }
+    }
+    let summary = if failed.is_empty() {
+        format!("\n[卷级批审] 全部 {} 章完成，问题清单见右栏/裁决后复检。\n", chapters.len())
+    } else {
+        format!("\n[卷级批审] 完成，部分失败：{}\n", failed.join("；"))
+    };
+    on_event(AgentEvent::TextDelta { text: summary });
+    Ok(())
+}
+
+/// 账本整理 pass。
+pub async fn tidy_flow(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    work_path: String,
+    on_event: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let work_dir = PathBuf::from(&work_path);
+    let ledger_path = ledger::LEDGER_PATH;
+    let spec = ledger_tidy_spec();
+    let tool_ctx = ToolCtx {
+        work_root: work_dir.clone(),
+        queue: Arc::clone(queue),
+        on_proposal,
+        expect: None,
+    };
+    let prompt = format!(
+        "请整理账本 {ledger_path}：read 全文 → 按 ledger-tidy 规程整理 → propose_edit 提交整理后全文（路径 {ledger_path}）。"
+    );
+    run_and_save_session(
+        "gen-ledger-tidy".to_string(),
+        &work_dir,
+        &tool_ctx,
+        &spec,
+        &prompt,
+        &on_event,
+    )
+    .await
+}
