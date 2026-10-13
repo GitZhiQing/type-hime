@@ -61,11 +61,8 @@ async fn run() -> Result<(), String> {
     lore::create_setting(&dir, "worldview", "修行体系", "炼气一至九层→筑基。无灵根者不能引气入体。", lore::Visibility::Visible, None)?;
     lore::create_setting(&dir, "mystery", "黑剑真身", "剑中封印残魂，为国师本命剑。第二卷末揭示。", lore::Visibility::Hidden, None)?;
 
-    let ctx = |expect| ToolCtx {
-        work_root: dir.clone(),
-        queue: Arc::clone(&queue),
-        on_proposal: Arc::new(|_| {}),
-        expect,
+    let ctx = |expect| {
+        ToolCtx::new(dir.clone(), Arc::clone(&queue), Arc::new(|_| {})).expect(expect)
     };
     use type_hime_lib::agent::tools::WriteExpect;
 
@@ -218,12 +215,7 @@ async fn write_outline(
     dir: &PathBuf,
     queue: &Arc<Mutex<ReviewQueue>>,
 ) -> Result<(), String> {
-    let tc = ToolCtx {
-        work_root: dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal: Arc::new(|_| {}),
-        expect: None,
-    };
+    let tc = ToolCtx::new(dir.clone(), Arc::clone(queue), Arc::new(|_| {}));
     let spec = writer_spec("");
     let p1 = "补全总纲：一句话主线+两卷走向（150字内）。propose_edit 提交。目标文件：outline/总纲.md";
     kernel::run(s, Some(&tc), &spec, Vec::new(), p1, |_| {}).await?;

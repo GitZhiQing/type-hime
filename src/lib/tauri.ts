@@ -169,7 +169,18 @@ export type AgentEvent =
   | { type: "tool_call"; name: string; args: string }
   | { type: "tool_result"; name: string; output: string }
   | { type: "final"; output: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "approval_request"; id: number; tool: string; title: string; detail: string }
+  | { type: "approval_resolved"; id: number; allowed: boolean; note: string | null };
+
+/** 工具审批请求（R4：确认档 bash 等逐条确认；Confirmation 卡数据源） */
+export interface ApprovalRequestView {
+  id: number;
+  tool: string;
+  title: string;
+  detail: string;
+  created_at: string;
+}
 
 export interface SessionMeta {
   id: string;
@@ -382,6 +393,11 @@ export const api = {
     call<string>("apply_proposal", { workPath, id }),
   rejectProposal: (id: number, comment?: string) =>
     call<void>("reject_proposal", { id, comment: comment ?? null }),
+
+  // 工具审批（R4 Spike A：Confirmation 卡）
+  decideApproval: (id: number, allow: boolean) =>
+    call<boolean>("decide_approval", { id, allow }),
+  listApprovals: () => call<ApprovalRequestView[]>("list_approvals"),
 
   // 装配
   previewAssembly: (

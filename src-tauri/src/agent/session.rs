@@ -8,6 +8,13 @@ use std::path::PathBuf;
 use rig::completion::Message;
 use serde::{Deserialize, Serialize};
 
+/// 会话存档格式版本（防御：rig Message 序列化演进的迁移锚点；旧档无此字段按当前版本读）。
+pub const SESSION_FORMAT_VERSION: u32 = 1;
+
+fn default_format_version() -> u32 {
+    SESSION_FORMAT_VERSION
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Session {
     pub id: String,
@@ -15,6 +22,9 @@ pub struct Session {
     /// 会话标题（自动生成或用户重命名；旧档无此字段时按 None 读取）
     #[serde(default)]
     pub title: Option<String>,
+    /// 存档格式版本（R4 inner facade：未来 rig 破坏性升级时按版本迁移）
+    #[serde(default = "default_format_version")]
+    pub format_version: u32,
     pub messages: Vec<Message>,
     /// 会话全部轮次累计用量（成本参考）
     #[serde(default)]
@@ -312,6 +322,7 @@ mod tests {
             id: id.to_string(),
             created_at: format!("2026-10-14T00:0{id}:00"),
             title: None,
+            format_version: SESSION_FORMAT_VERSION,
             messages: Vec::new(),
             usage: None,
             last_usage: None,

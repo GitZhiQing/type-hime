@@ -48,13 +48,14 @@ async fn run() -> Result<(), String> {
 
     let mut pipeline_state = PipelineState::default();
 
-    let ctx = || ToolCtx {
-        work_root: dir.clone(),
-        queue: Arc::clone(&queue),
-        on_proposal: Arc::new(|p: &review::Proposal| {
-            println!("    [提议 #{}] {}", p.id, p.rel_path);
-        }),
-        expect: None,
+    let ctx = || {
+        ToolCtx::new(
+            dir.clone(),
+            Arc::clone(&queue),
+            Arc::new(|p: &review::Proposal| {
+                println!("    [提议 #{}] {}", p.id, p.rel_path);
+            }),
+        )
     };
 
     // helper：writer 型任务（任意产物）
@@ -70,12 +71,7 @@ async fn run() -> Result<(), String> {
             ("identity".into(), type_hime_lib::agent::spec::WRITER_IDENTITY.into()),
             ("task".into(), task),
         ];
-        let tc = ToolCtx {
-            work_root: dir.to_path_buf(),
-            queue: Arc::clone(queue),
-            on_proposal: Arc::new(|_| {}),
-        expect: None,
-        };
+        let tc = ToolCtx::new(dir.to_path_buf(), Arc::clone(queue), Arc::new(|_| {}));
         kernel::run(s, Some(&tc), &spec, Vec::new(), &prompt, |_| {}).await?;
         Ok(())
     }

@@ -40,13 +40,14 @@ async fn run() -> Result<(), String> {
     let vol = 1u32;
     let chapter = "ch-001".to_string();
 
-    let tool_ctx = |queue: &Arc<Mutex<ReviewQueue>>| ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal: Arc::new(|p: &review::Proposal| {
-            println!("    [提议 #{}] {}（{}）", p.id, p.rel_path, p.reason);
-        }),
-        expect: None,
+    let tool_ctx = |queue: &Arc<Mutex<ReviewQueue>>| {
+        ToolCtx::new(
+            work_dir.clone(),
+            Arc::clone(queue),
+            Arc::new(|p: &review::Proposal| {
+                println!("    [提议 #{}] {}（{}）", p.id, p.rel_path, p.reason);
+            }),
+        )
     };
 
     // ---------- 1. 章纲生成 ----------

@@ -14,8 +14,8 @@ use review::{Proposal, ReviewQueue};
 
 use crate::{agent, assembly, issues, ledger, pipeline, preflight, review, works};
 
-pub type EventSink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
 pub type ProposalSink = Arc<dyn Fn(&Proposal) + Send + Sync>;
+pub use agent::events::EventSink;
 
 /// 累计 usage（None + x = x；Some + Some = 和）。
 fn merge_usage(
@@ -47,6 +47,7 @@ async fn run_and_save_session(
         id: sess_id.clone(),
         created_at: works::now_iso(),
         title: None,
+        format_version: session::SESSION_FORMAT_VERSION,
         messages: Vec::new(),
         usage: None,
         last_usage: None,
@@ -103,8 +104,10 @@ async fn try_generate_title(first_user: &str) -> Option<String> {
 }
 
 /// 流式对话（旁路会话）：产物经提议审阅回流。拒绝带评论的反馈注入本轮上下文。
+/// approval：审批经纪人（R4：bash 等需审批工具挂起等 UI 决策；None=无审批通道）。
 pub async fn chat_flow(
     queue: &Arc<Mutex<ReviewQueue>>,
+    approval: Option<Arc<agent::approval::ApprovalBroker>>,
     work_path: String,
     session_id: String,
     prompt: String,
@@ -132,12 +135,9 @@ pub async fn chat_flow(
         format!("{}\n\n{}", blocks.join("\n"), prompt)
     };
     let spec = chat_spec();
-    let tool_ctx = ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal,
-        expect: None,
-    };
+    let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
+        .approval(approval)
+        .event_sink(Some(Arc::clone(&on_event)));
     let store = SessionStore::Work(work_dir);
     run_and_save_session(session_id.clone(), &store, Some(&tool_ctx), &spec, &prompt, &on_event)
         .await?;
@@ -225,12 +225,9 @@ pub async fn generate_artifact_flow(
         format!("{stage_hint}\n目标文件：{file_hint}"),
     ));
 
-    let tool_ctx = ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal,
-        expect,
-    };
+    let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
+        .expect(expect)
+        .event_sink(Some(Arc::clone(&on_event)));
 
     let prompt = format!(
         "{}\n\n# 输出文件\n{file_hint}\n\n请开始工作：完成后用 propose_write 提交全文。",
@@ -241,6 +238,7 @@ pub async fn generate_artifact_flow(
         id: format!("gen-{target}-{volume:02}-{chapter}"),
         created_at: works::now_iso(),
         title: None,
+        format_version: session::SESSION_FORMAT_VERSION,
         messages: Vec::new(),
         usage: None,
         last_usage: None,
@@ -282,12 +280,8 @@ pub async fn ledger_update_flow(
          然后 propose_edit 提交更新后的账本全文（路径 {ledger_path}）。"
     );
     let spec = ledger_spec();
-    let tool_ctx = ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal,
-        expect: None,
-    };
+    let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
+        .event_sink(Some(Arc::clone(&on_event)));
     run_and_save_session(
         format!("gen-ledger-{volume:02}-{chapter}"),
         &SessionStore::Work(work_dir),
@@ -362,12 +356,8 @@ pub async fn review_flow(
     };
     spec.sections.push(("task".to_string(), task));
 
-    let tool_ctx = ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal,
-        expect: None,
-    };
+    let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
+        .event_sink(Some(Arc::clone(on_event)));
     let prompt = format!(
         "{}\n\n# 待审章节\n{ch_path}\n\n请开始审校。",
         assembly::render_prompt(&assembled)
@@ -388,6 +378,7 @@ pub async fn review_flow(
         id: format!("review-{mode}-{volume:02}-{chapter}"),
         created_at: works::now_iso(),
         title: None,
+        format_version: session::SESSION_FORMAT_VERSION,
         messages: outcome.messages,
         usage: outcome.usage,
         last_usage: outcome.usage,
@@ -453,12 +444,8 @@ pub async fn recheck_flow(
          (c) 输出「复检结论：通过/不通过 + 原因」。\n\n# 上轮问题清单\n{dossier}"
     )));
 
-    let tool_ctx = ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal,
-        expect: None,
-    };
+    let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
+        .event_sink(Some(Arc::clone(&on_event)));
     let prompt = format!(
         "{}\n\n# 待复检章节\n{ch_path}\n\n请开始复检。",
         assembly::render_prompt(&assembled)
@@ -539,12 +526,8 @@ pub async fn tidy_flow(
     let work_dir = PathBuf::from(&work_path);
     let ledger_path = ledger::LEDGER_PATH;
     let spec = ledger_tidy_spec();
-    let tool_ctx = ToolCtx {
-        work_root: work_dir.clone(),
-        queue: Arc::clone(queue),
-        on_proposal,
-        expect: None,
-    };
+    let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
+        .event_sink(Some(Arc::clone(&on_event)));
     let prompt = format!(
         "请整理账本 {ledger_path}：read 全文 → 按 ledger-tidy 规程整理 → propose_edit 提交整理后全文（路径 {ledger_path}）。"
     );

@@ -49,13 +49,14 @@ async fn run() -> Result<(), String> {
     let mut pipeline_state = pipeline::load_pipeline(&dir)?;
     let mut token_curve: Vec<(String, u64)> = Vec::new();
 
-    let ctx = || ToolCtx {
-        work_root: dir.clone(),
-        queue: Arc::clone(&queue),
-        on_proposal: Arc::new(|p: &review::Proposal| {
-            println!("    [提议 #{}] {}", p.id, p.rel_path);
-        }),
-        expect: None,
+    let ctx = || {
+        ToolCtx::new(
+            dir.clone(),
+            Arc::clone(&queue),
+            Arc::new(|p: &review::Proposal| {
+                println!("    [提议 #{}] {}", p.id, p.rel_path);
+            }),
+        )
     };
 
     let confirm = |st: Stage, ps: &mut PipelineState| -> Result<(), String> {
@@ -277,12 +278,7 @@ async fn run_writer_task(
         ("identity".into(), WRITER_IDENTITY.into()),
         ("task".into(), task.to_string()),
     ];
-    let tc = ToolCtx {
-        work_root: dir.to_path_buf(),
-        queue: Arc::clone(queue),
-        on_proposal: Arc::new(|_| {}),
-        expect: None,
-    };
+    let tc = ToolCtx::new(dir.to_path_buf(), Arc::clone(queue), Arc::new(|_| {}));
     kernel::run(s, Some(&tc), &spec, Vec::new(), prompt, |_| {}).await?;
     Ok(())
 }
@@ -299,12 +295,7 @@ async fn run_ledger(
         "第1卷 {chapter} 已完稿。请先 read_file 读取正文 {ch_path} 与账本 {ledger_path}，然后 propose_edit 提交更新后的账本全文（路径 {ledger_path}）。"
     );
     let spec = ledger_spec();
-    let tc = ToolCtx {
-        work_root: dir.to_path_buf(),
-        queue: Arc::clone(queue),
-        on_proposal: Arc::new(|_| {}),
-        expect: None,
-    };
+    let tc = ToolCtx::new(dir.to_path_buf(), Arc::clone(queue), Arc::new(|_| {}));
     kernel::run(s, Some(&tc), &spec, Vec::new(), &prompt, |_| {}).await?;
     apply_latest(dir, queue, ledger_path)
 }

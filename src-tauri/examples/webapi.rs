@@ -17,6 +17,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use serde_json::{json, Value};
 
+use type_hime_lib::agent::approval::{Decision, SharedApproval};
 use type_hime_lib::agent::events::AgentEvent;
 use type_hime_lib::flows::{self, EventSink, ProposalSink};
 use type_hime_lib::review::{Proposal, SharedQueue};
@@ -30,6 +31,12 @@ use type_hime_lib::{
 fn queue() -> &'static SharedQueue {
     static Q: OnceLock<SharedQueue> = OnceLock::new();
     Q.get_or_init(SharedQueue::restored)
+}
+
+/// 审批经纪人（R4 Spike A：与 Tauri State<SharedApproval> 等价）
+fn approvals() -> &'static SharedApproval {
+    static A: OnceLock<SharedApproval> = OnceLock::new();
+    A.get_or_init(SharedApproval::new)
 }
 
 fn events() -> &'static tokio::sync::broadcast::Sender<String> {
@@ -310,10 +317,13 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
         // ---- 生成（流式 SSE） ----
         "chat_stream" => stream_sse(|sink, prop| {
             let q = Arc::clone(&q_arc);
+            let approval = Arc::clone(&approvals().0);
             let work_path = s("workPath");
             let session_id = s("sessionId");
             let prompt = s("prompt");
-            async move { flows::chat_flow(&q, work_path, session_id, prompt, sink, prop).await }
+            async move {
+                flows::chat_flow(&q, Some(approval), work_path, session_id, prompt, sink, prop).await
+            }
         }),
         "generate_artifact" => stream_sse(|sink, prop| {
             let q = Arc::clone(&q_arc);
@@ -371,7 +381,16 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
                 }))
         }
 
-        // ---- 审阅 / 清单 / 成本 ----
+        // ---- 审阅 / 清单 / 成本 / 审批 ----
+        "decide_approval" => {
+            let id = body["id"].as_u64().unwrap_or(0);
+            let allow = body["allow"].as_bool().unwrap_or(false);
+            let hit = approvals()
+                .0
+                .resolve(id, if allow { Decision::Allow } else { Decision::Deny });
+            Json(hit).into_response()
+        }
+        "list_approvals" => Json(approvals().0.list()).into_response(),
         "list_proposals" => Json(q_arc.lock().unwrap().list()).into_response(),
         "apply_proposal" => {
             let id = body["id"].as_u64().unwrap_or(0);

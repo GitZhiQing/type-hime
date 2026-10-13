@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
 
+use agent::approval::{Decision, SharedApproval};
 use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
@@ -346,6 +347,7 @@ fn load_session_view_global(session_id: String) -> Result<Vec<session::MessageVi
 async fn chat_stream(
     app: AppHandle,
     queue: State<'_, SharedQueue>,
+    approval: State<'_, SharedApproval>,
     work_path: String,
     session_id: String,
     prompt: String,
@@ -358,7 +360,16 @@ async fn chat_stream(
     let prop: flows::ProposalSink = Arc::new(move |p| {
         let _ = app2.emit("review:new", p);
     });
-    flows::chat_flow(&queue.0, work_path, session_id, prompt, sink, prop).await
+    flows::chat_flow(
+        &queue.0,
+        Some(Arc::clone(&approval.0)),
+        work_path,
+        session_id,
+        prompt,
+        sink,
+        prop,
+    )
+    .await
 }
 
 /// 全局对话（rail「对话」页）：无作品上下文，无提议。
@@ -414,6 +425,20 @@ async fn propose_ledger_update(
         let _ = app2.emit("review:new", p);
     });
     flows::ledger_update_flow(&queue.0, work_path, volume, chapter, sink, prop).await
+}
+
+/// 审批决策落地（R4：Confirmation 卡按钮；工具挂起处随即恢复）。
+#[tauri::command]
+fn decide_approval(approval: State<'_, SharedApproval>, id: u64, allow: bool) -> bool {
+    approval
+        .0
+        .resolve(id, if allow { Decision::Allow } else { Decision::Deny })
+}
+
+/// 当前待决审批清单（前端刷新/重连时恢复卡片）。
+#[tauri::command]
+fn list_approvals(approval: State<'_, SharedApproval>) -> Vec<agent::approval::ApprovalRequest> {
+    approval.0.list()
 }
 
 /// 技能清单（R2：`/` 补全与技能文档制品的数据源；workPath 缺省=仅内置技能）。
@@ -607,6 +632,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(SharedQueue::restored())
+        .manage(SharedApproval::new())
         .invoke_handler(tauri::generate_handler![
             // 作品底座
             get_works_root,
@@ -655,6 +681,8 @@ pub fn run() {
             load_session_view_global,
             chat_stream,
             chat_stream_global,
+            decide_approval,
+            list_approvals,
             // 生成流水线
             generate_artifact,
             propose_ledger_update,

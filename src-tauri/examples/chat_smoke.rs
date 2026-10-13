@@ -32,15 +32,14 @@ async fn run() -> Result<(), String> {
 
     // 工具上下文：共享提议队列
     let queue: Arc<Mutex<ReviewQueue>> = Arc::new(Mutex::new(ReviewQueue::default()));
-    let tool_ctx = ToolCtx {
-        work_root: std::env::args()
+    let tool_ctx = ToolCtx::new(
+        std::env::args()
             .nth(1)
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(".")),
-        queue: Arc::clone(&queue),
-        on_proposal: Arc::new(|p| println!("    [新提议 #{}] {}：{}", p.id, p.rel_path, p.reason)),
-        expect: None,
-    };
+        Arc::clone(&queue),
+        Arc::new(|p| println!("    [新提议 #{}] {}：{}", p.id, p.rel_path, p.reason)),
+    );
     let work_dir = tool_ctx.work_root.clone();
 
     let spec = chat_spec();
@@ -72,6 +71,7 @@ let new_messages = outcome_final_text.messages;
         id: "smoke-test".into(),
         created_at: type_hime_lib::works::now_iso(),
         title: None,
+        format_version: type_hime_lib::agent::session::SESSION_FORMAT_VERSION,
         messages: new_messages,
         usage: None,
         last_usage: None,

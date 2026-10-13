@@ -100,29 +100,18 @@ where
         .preamble(preamble)
         .default_max_turns(spec.max_turns);
 
-    // rig 的 AgentBuilder 是 typestate：第一个 tool() 转换状态（NoToolConfig→WithBuilderTools），
-    // 其后 tool() 返回 Self 可链式追加
-    let agent = match tool_ctx.map(|ctx| tools::build_tools(ctx, &spec.tools)) {
+    // 工具注册面收敛（inner facade）：按 spec.tools 名单构建 DynamicTool 列表一次挂载
+    // （rig 0.44 dynamic_tools；免去逐工具 typestate 链式 match，见 tools::erase）
+    let agent = match tool_ctx {
         None => base.build(),
-        Some(entries) => match entries.split_first() {
-            None => base.build(),
-            Some((first, rest)) => {
-                let b = match first {
-                    tools::ToolEntry::ReadFile(t) => base.tool(t.clone()),
-                    tools::ToolEntry::ProposeEdit(t) => base.tool(t.clone()),
-                    tools::ToolEntry::ProposeWrite(t) => base.tool(t.clone()),
-                };
-                let mut b = b;
-                for entry in rest {
-                    b = match entry {
-                        tools::ToolEntry::ReadFile(t) => b.tool(t.clone()),
-                        tools::ToolEntry::ProposeEdit(t) => b.tool(t.clone()),
-                        tools::ToolEntry::ProposeWrite(t) => b.tool(t.clone()),
-                    };
-                }
-                b.build()
+        Some(ctx) => {
+            let entries = tools::build_tools(ctx, &spec.tools);
+            if entries.is_empty() {
+                base.build()
+            } else {
+                base.dynamic_tools(entries).build()
             }
-        },
+        }
     };
 
     let mut stream = agent.prompt(prompt).history(history).stream();

@@ -31,6 +31,7 @@ import {
   type AutocompleteItem,
 } from "@/components/ai/prompt-autocomplete";
 import { ProposalCard, type InlineProposal } from "@/components/ai/proposal-card";
+import { ConfirmationCard, type ApprovalView } from "@/components/ai/confirmation";
 import { SLASH_DEFS, parseSlash, runSlash } from "@/lib/slash";
 
 interface ChatProps {
@@ -88,6 +89,8 @@ export function ChatPane({
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [files, setFiles] = useState<{ name: string; path: string }[]>([]);
   const [inlineProposals, setInlineProposals] = useState<InlineProposal[]>([]);
+  /** 本轮的工具审批卡（R4：审批事件驱动的状态机；决策由审批事件回传） */
+  const [approvals, setApprovals] = useState<ApprovalView[]>([]);
   const busyRef = useRef(false);
 
   const isWork = scope === "work" && !!workPath;
@@ -231,6 +234,7 @@ export function ChatPane({
     if (!raw || busy) return;
     setMenu(null);
     setInlineProposals([]);
+    setApprovals([]);
     busyRef.current = true;
 
     // slash 命令（过渡实现：前端直达命令，R4 切换为 Agent 指令）
@@ -321,6 +325,28 @@ export function ChatPane({
   }
 
   function handleStreamEvent(ev: AgentEvent) {
+    // 审批事件（R4）：卡片状态机独立于流式消息区
+    if (ev.type === "approval_request") {
+      setApprovals((list) => [
+        ...list,
+        {
+          id: ev.id,
+          tool: ev.tool,
+          title: ev.title,
+          detail: ev.detail,
+          status: "pending",
+          note: null,
+        },
+      ]);
+    } else if (ev.type === "approval_resolved") {
+      setApprovals((list) =>
+        list.map((a) =>
+          a.id === ev.id
+            ? { ...a, status: ev.allowed ? "allowed" : "denied", note: ev.note }
+            : a,
+        ),
+      );
+    }
     setStreaming((s) => {
       if (!s) return s;
       switch (ev.type) {
@@ -350,6 +376,15 @@ export function ChatPane({
           return s;
       }
     });
+  }
+
+  /** 审批决策（允许/拒绝）：工具挂起处会随即恢复并回传 approval_resolved 事件 */
+  async function decideApproval(id: number, allow: boolean) {
+    try {
+      await api.decideApproval(id, allow);
+    } catch (e) {
+      toast.error(String(e));
+    }
   }
 
   return (
@@ -393,6 +428,13 @@ export function ChatPane({
                 </MessageContent>
               </Message>
             </>
+          )}
+          {approvals.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {approvals.map((a) => (
+                <ConfirmationCard key={a.id} approval={a} onDecide={decideApproval} />
+              ))}
+            </div>
           )}
           {inlineProposals.length > 0 && (
             <div className="flex flex-col gap-2">
