@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api, TreeNode, WorkSummary } from "@/lib/tauri";
 import { ResourceTree } from "@/components/ResourceTree";
 import { EditorPane } from "@/components/EditorPane";
+import { ChatPane } from "@/components/ChatPane";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -11,7 +12,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { BookOpen, History, MessageSquare, ArrowLeft, RefreshCw } from "lucide-react";
+import { BookOpen, History, ArrowLeft, RefreshCw, Settings } from "lucide-react";
 
 export function Workbench() {
   const navigate = useNavigate();
@@ -81,11 +82,20 @@ export function Workbench() {
         <Button
           variant="ghost"
           size="sm"
-          className="ml-auto h-8 px-2 text-xs"
+          className="h-8 px-2 text-xs"
           onClick={refresh}
         >
           <RefreshCw data-icon="inline-start" />
           刷新
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2"
+          onClick={() => navigate("/settings")}
+          aria-label="设置"
+        >
+          <Settings className="size-4" />
         </Button>
       </header>
 
@@ -131,15 +141,7 @@ export function Workbench() {
         <ResizableHandle withHandle />
 
         <ResizablePanel defaultSize={44} minSize={24}>
-          <main className="flex h-full flex-col">
-            <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs font-medium text-muted-foreground">
-              <MessageSquare className="size-3.5" />
-              会话
-            </div>
-            <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-              Agent 会话区（切片 2 起启用）
-            </div>
-          </main>
+          <ChatPane workPath={workPath} />
         </ResizablePanel>
 
         <ResizableHandle withHandle />

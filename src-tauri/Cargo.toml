@@ -26,6 +26,10 @@ rig = "0.44"
 futures = "0.3"
 dirs = "6"
 dunce = "1"
+schemars = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

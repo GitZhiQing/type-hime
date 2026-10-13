@@ -8679,11 +8679,13 @@ dependencies = [
  "dunce",
  "futures",
  "rig",
+ "schemars 1.2.3",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tokio",
 ]
 
 [[package]]

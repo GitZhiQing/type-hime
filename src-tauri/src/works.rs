@@ -327,7 +327,7 @@ pub fn restore_file(work_dir: &Path, rel: &str) -> Result<(), String> {
     git::restore_file(work_dir, rel)
 }
 
-fn now_iso() -> String {
+pub fn now_iso() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
