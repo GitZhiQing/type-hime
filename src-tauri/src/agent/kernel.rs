@@ -316,11 +316,17 @@ mod tests {
 
     #[test]
     fn preamble_sections_and_skills_layering() {
+        // chat spec 默认挂 writer-basics（R4-④）：身份节 + 技能节
         let spec = super::super::spec::chat_spec();
-        // 无作品目录：只有身份节
         let p = build_preamble(&spec, None);
         assert!(p.contains("执笔公主"));
-        assert!(!p.contains("# 技能指令"));
+        assert!(p.contains("# 技能指令"));
+        assert!(p.contains("## 技能：writer-basics"));
+
+        // 无技能 spec（全局对话）：只有身份节
+        let g = super::super::spec::global_chat_spec();
+        let pg = build_preamble(&g, None);
+        assert!(!pg.contains("# 技能指令"));
 
         // 临时作品目录：作品层 skill 覆盖内置层（nearest layer wins）
         let dir = std::env::temp_dir().join(format!("type-hime-skill-test-{}", std::process::id()));
@@ -332,9 +338,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut spec2 = super::super::spec::chat_spec();
-        spec2.skills = vec!["writer-basics".to_string()];
-        let p2 = build_preamble(&spec2, Some(&dir));
+        let p2 = build_preamble(&spec, Some(&dir));
         assert!(p2.contains("# 技能指令"));
         assert!(p2.contains("作品层覆盖的写作指令"));
         assert!(!p2.contains("目标篇幅内完成")); // 内置版本被覆盖

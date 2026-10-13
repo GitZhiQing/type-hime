@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session, SessionStore};
-use agent::spec::{chat_spec, global_chat_spec, ledger_spec, ledger_tidy_spec, reviewer_spec, writer_spec, AgentSpec};
+use agent::spec::{global_chat_spec, ledger_spec, ledger_tidy_spec, reviewer_spec, writer_spec, AgentSpec};
 use agent::tools::{FlowRequest, FlowRunner, ToolCtx};
 use pipeline::Stage;
 use review::{Proposal, ReviewQueue};
@@ -127,7 +127,14 @@ pub async fn chat_flow(
             .collect();
         format!("{}\n\n{}", blocks.join("\n"), prompt)
     };
-    let spec = chat_spec();
+    let spec = {
+        // 技能动态挂载（R4-④ · REDESIGN §8.2）：默认 writer-basics + slash 强制 + 关键词路由
+        let mut extra = agent::skills::route_skills(&prompt, Some(&work_dir));
+        if let Some(s) = agent::spec::slash_forced_skill(&prompt) {
+            extra.push(s.to_string());
+        }
+        agent::spec::chat_spec_with_skills(&extra)
+    };
     let runner = chat_flow_runner(Arc::clone(queue), work_path.clone(), Arc::clone(&on_proposal));
     // 权限上下文（R4-①）：会话档位（存会话档案）+ 作品覆盖表（project.json）
     let store = SessionStore::Work(work_dir.clone());

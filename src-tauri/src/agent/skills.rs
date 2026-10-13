@@ -14,6 +14,9 @@ pub struct Skill {
     pub description: String,
     #[serde(default, rename = "whenToUse")]
     pub when_to_use: Option<String>,
+    /// 路由关键词（R4-④：自然语言命中任一关键词即挂载；frontmatter `keywords: 甲,乙`）
+    #[serde(default)]
+    pub keywords: Vec<String>,
     /// md 正文（frontmatter 之后）
     pub body: String,
 }
@@ -47,6 +50,12 @@ pub fn parse_skill(raw: &str, fallback_name: &str) -> Skill {
                     skill.description = v.trim().to_string();
                 } else if let Some(v) = line.strip_prefix("whenToUse:") {
                     skill.when_to_use = Some(v.trim().to_string());
+                } else if let Some(v) = line.strip_prefix("keywords:") {
+                    skill.keywords = v
+                        .split([',', '，'])
+                        .map(|k| k.trim().to_string())
+                        .filter(|k| !k.is_empty())
+                        .collect();
                 }
             }
         } else {
@@ -106,6 +115,8 @@ pub struct SkillMeta {
     pub name: String,
     pub description: String,
     pub when_to_use: Option<String>,
+    /// 路由关键词（R4-④：自然语言命中即挂；无 keywords 时回退 whenToUse 全文 + 技能名）
+    pub keywords: Vec<String>,
     /// builtin | work
     pub source: String,
     /// 作品层是否覆盖了同名内置技能
@@ -123,11 +134,19 @@ pub fn list_skill_meta(work_dir: Option<&Path>) -> Vec<SkillMeta> {
                 .iter()
                 .find(|b| b.name == s.name)
                 .is_some_and(|b| b.description != s.description);
+            let mut keywords = s.keywords.clone();
+            if keywords.is_empty() {
+                keywords.push(s.name.clone());
+                if let Some(w) = &s.when_to_use {
+                    keywords.push(w.clone());
+                }
+            }
             if builtin.iter().any(|b| b.name == s.name) {
                 SkillMeta {
                     name: s.name,
                     description: s.description,
                     when_to_use: s.when_to_use,
+                    keywords,
                     source: "builtin".to_string(),
                     overridden: is_override,
                 }
@@ -136,11 +155,26 @@ pub fn list_skill_meta(work_dir: Option<&Path>) -> Vec<SkillMeta> {
                     name: s.name,
                     description: s.description,
                     when_to_use: s.when_to_use,
+                    keywords,
                     source: "work".to_string(),
                     overridden: false,
                 }
             }
         })
+        .collect()
+}
+
+/// 关键词路由（R4-④ · REDESIGN §8.2 实现从简）：prompt 命中技能名或任一关键词即挂载。
+pub fn route_skills(prompt: &str, work_dir: Option<&Path>) -> Vec<String> {
+    list_skill_meta(work_dir)
+        .into_iter()
+        .filter(|m| {
+            prompt.contains(&m.name)
+                || m.keywords
+                    .iter()
+                    .any(|k| !k.is_empty() && prompt.contains(k.as_str()))
+        })
+        .map(|m| m.name)
         .collect()
 }
 
@@ -150,11 +184,12 @@ mod tests {
 
     #[test]
     fn parse_and_layering() {
-        let raw = "---\nname: 章节\n\ndescription: 写章节\nwhenToUse: 写正文时\n---\n\n正文指令内容";
+        let raw = "---\nname: 章节\n\ndescription: 写章节\nwhenToUse: 写正文时\nkeywords: 正文, 续写\n---\n\n正文指令内容";
         let s = parse_skill(raw, "fallback");
         assert_eq!(s.name, "章节");
         assert_eq!(s.description, "写章节");
         assert_eq!(s.when_to_use.as_deref(), Some("写正文时"));
+        assert_eq!(s.keywords, vec!["正文".to_string(), "续写".to_string()]);
         assert!(s.body.contains("正文指令内容"));
 
         // 空渲染
@@ -163,5 +198,25 @@ mod tests {
         let r = render_skills(&[s]);
         assert!(r.contains("# 技能指令"));
         assert!(r.contains("## 技能：章节"));
+    }
+
+    #[test]
+    fn routing_by_keywords() {
+        // 内置技能挂载路由：命中关键词 / 技能名；未命中不挂
+        let hit = route_skills("帮我看看这一章的正文有没有问题", None);
+        assert!(hit.contains(&"writer-basics".to_string()), "正文应命中 writer-basics：{hit:?}");
+        let hit2 = route_skills("跑一次一致性检查", None);
+        assert!(
+            hit2.contains(&"review-consistency".to_string()),
+            "一致性应命中 review-consistency：{hit2:?}"
+        );
+        let hit3 = route_skills("把账本整理一下", None);
+        assert!(hit3.contains(&"ledger-tidy".to_string()), "账本整理应命中：{hit3:?}");
+        // 与写作无关的普通提问不挂载
+        let none = route_skills("今天天气怎么样", None);
+        assert!(none.is_empty(), "无关提问不应挂载：{none:?}");
+        // 技能名直呼也命中
+        let by_name = route_skills("请按 review-consistency 规程来", None);
+        assert!(by_name.contains(&"review-consistency".to_string()));
     }
 }

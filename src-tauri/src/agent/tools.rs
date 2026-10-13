@@ -629,6 +629,257 @@ impl Tool for RunFlow {
 }
 
 // ---------------------------------------------------------------------------
+// 查询与零 token 检查工具（R4-④：替代 read_file 读 json/md 的绕路，给模型结构化语义）
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetLedgerArgs {}
+
+/// 账本结构化查询（角色状态/已交代事实/伏笔/时间线）。
+#[derive(Clone)]
+pub struct GetLedgerTool {
+    work_root: PathBuf,
+}
+
+impl Tool for GetLedgerTool {
+    const NAME: &'static str = "get_ledger";
+    type Error = std::convert::Infallible;
+    type Args = GetLedgerArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        _args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(match crate::ledger::read_ledger(&self.work_root) {
+            Ok(l) => serde_json::to_string_pretty(&l).unwrap_or_else(|_| "[账本序列化失败]".into()),
+            Err(e) => format!("[读取账本失败] {e}"),
+        })
+    }
+
+    fn description(&self) -> String {
+        "读取连续性账本的结构化视图：角色状态 / 已交代事实 / 伏笔登记 / 时间线（每项含标题、正文、最近更新章）。只读。".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(GetLedgerArgs).to_value()
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListIssuesArgs {
+    /// 只列某章的问题（如 ch-003）；省略=全部
+    #[serde(default)]
+    pub chapter: Option<String>,
+}
+
+/// 审校问题清单查询（含裁决状态与复检档案）。
+#[derive(Clone)]
+pub struct ListIssuesTool {
+    work_root: PathBuf,
+}
+
+impl Tool for ListIssuesTool {
+    const NAME: &'static str = "list_issues";
+    type Error = std::convert::Infallible;
+    type Args = ListIssuesArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(
+            match crate::issues::list(&self.work_root, args.chapter.as_deref()) {
+                Ok(list) if list.is_empty() => "[问题清单为空]".to_string(),
+                Ok(list) => serde_json::to_string_pretty(&list)
+                    .unwrap_or_else(|_| "[清单序列化失败]".into()),
+                Err(e) => format!("[读取问题清单失败] {e}"),
+            },
+        )
+    }
+
+    fn description(&self) -> String {
+        "查询审校问题清单（结构化）：编号/章节/问题文本/来源/裁决状态（open/fixed/dismissed/needs_ruling）/裁决记录。只读。".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(ListIssuesArgs).to_value()
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListLoreArgs {
+    /// 名称/类型过滤关键词（如「林晚」或「character」）；省略=全部可见条目
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// 当前创作卷号（决定「未到开放卷」的可见性判定；默认 1）
+    #[serde(default)]
+    pub volume: Option<u32>,
+}
+
+/// 设定库查询（只列 prompt 可见条目：隐藏/未到开放卷的条目对 Agent 不存在）。
+#[derive(Clone)]
+pub struct ListLoreTool {
+    work_root: PathBuf,
+}
+
+impl Tool for ListLoreTool {
+    const NAME: &'static str = "list_lore";
+    type Error = std::convert::Infallible;
+    type Args = ListLoreArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        let volume = args.volume.unwrap_or(1);
+        Ok(match crate::lore::list_settings(&self.work_root) {
+            Ok(all) => {
+                let hidden = all
+                    .iter()
+                    .filter(|m| !crate::lore::is_prompt_visible(m, volume))
+                    .count();
+                let filter = args.filter.unwrap_or_default();
+                let visible: Vec<serde_json::Value> = all
+                    .iter()
+                    .filter(|m| crate::lore::is_prompt_visible(m, volume))
+                    .filter(|m| {
+                        filter.is_empty()
+                            || m.name.contains(&filter)
+                            || m.kind.contains(&filter)
+                    })
+                    .map(|m| {
+                        serde_json::json!({
+                            "name": m.name,
+                            "kind": m.kind,
+                            "path": m.path,
+                        })
+                    })
+                    .collect();
+                let mut out = serde_json::json!({ "visible": visible }).to_string();
+                if hidden > 0 {
+                    out.push_str(&format!(
+                        "\n（另有 {hidden} 条隐藏或未到开放卷的条目：对当前创作不可见也不可读，不要引用其内容。）"
+                    ));
+                }
+                out
+            }
+            Err(e) => format!("[读取设定库失败] {e}"),
+        })
+    }
+
+    fn description(&self) -> String {
+        "列出设定库中的可见条目（名称/类型/路径），可用 filter 过滤、volume 指定当前卷。只读；隐藏与未到开放卷的条目不返回。".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(ListLoreArgs).to_value()
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EmptyArgs {}
+
+/// 关联泄漏检查（零 token）：可见条目是否大段复述隐藏条目。
+#[derive(Clone)]
+pub struct CheckLeakTool {
+    work_root: PathBuf,
+}
+
+impl Tool for CheckLeakTool {
+    const NAME: &'static str = "check_visibility_leak";
+    type Error = std::convert::Infallible;
+    type Args = EmptyArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        _args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(match crate::lore::check_visibility_leak(&self.work_root) {
+            Ok(warnings) if warnings.is_empty() => {
+                "泄漏检查通过：可见条目未复述隐藏设定。".to_string()
+            }
+            Ok(warnings) => format!(
+                "泄漏检查发现 {} 处疑似复述：\n{}",
+                warnings.len(),
+                warnings.join("\n")
+            ),
+            Err(e) => format!("[泄漏检查失败] {e}"),
+        })
+    }
+
+    fn description(&self) -> String {
+        "零 token 检查：可见条目内容是否大段复述隐藏条目（4-gram 重叠）。只读，不发模型请求。".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(EmptyArgs).to_value()
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PreflightChapterArgs {
+    pub volume: u32,
+    /// 章号（如 ch-003）
+    pub chapter: String,
+}
+
+/// 修为层级代码预检（零 token）。
+#[derive(Clone)]
+pub struct PreflightChapterTool {
+    work_root: PathBuf,
+}
+
+impl Tool for PreflightChapterTool {
+    const NAME: &'static str = "preflight_chapter";
+    type Error = std::convert::Infallible;
+    type Args = PreflightChapterArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        let ch_path = crate::assembly::chapter_path(args.volume, &args.chapter);
+        Ok(
+            match crate::works::read_file(&self.work_root, &ch_path) {
+                Ok(text) => match crate::ledger::read_ledger(&self.work_root) {
+                    Ok(ledger) => {
+                        let problems = crate::preflight::preflight_cultivation(&text, &ledger);
+                        if problems.is_empty() {
+                            format!("preflight 通过：{ch_path} 未发现修为层级矛盾。")
+                        } else {
+                            format!(
+                                "preflight 发现 {} 处修为层级疑点（{ch_path}）：\n{}",
+                                problems.len(),
+                                problems.join("\n")
+                            )
+                        }
+                    }
+                    Err(e) => format!("[预检失败：读取账本出错] {e}"),
+                },
+                Err(e) => format!("[预检失败] {e}"),
+            },
+        )
+    }
+
+    fn description(&self) -> String {
+        "零 token 检查：代码比对本章正文中的修为描述与账本记录（炼气/筑基/金丹等层级），列出矛盾。只读，不发模型请求。".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(PreflightChapterArgs).to_value()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 注册表
 
 /// 把具体 Tool 包装为 DynamicTool（工具注册面收敛：按 spec.tools 名单动态构建，
@@ -672,6 +923,21 @@ pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
             "propose_write" => out.push(erase(ProposeWrite { ctx: ctx.clone() })),
             "bash" => out.push(erase(Bash { ctx: ctx.clone() })),
             "run_flow" => out.push(erase(RunFlow { ctx: ctx.clone() })),
+            "get_ledger" => out.push(erase(GetLedgerTool {
+                work_root: ctx.work_root.clone(),
+            })),
+            "list_issues" => out.push(erase(ListIssuesTool {
+                work_root: ctx.work_root.clone(),
+            })),
+            "list_lore" => out.push(erase(ListLoreTool {
+                work_root: ctx.work_root.clone(),
+            })),
+            "check_visibility_leak" => out.push(erase(CheckLeakTool {
+                work_root: ctx.work_root.clone(),
+            })),
+            "preflight_chapter" => out.push(erase(PreflightChapterTool {
+                work_root: ctx.work_root.clone(),
+            })),
             other => eprintln!("[agent] 未知工具名：{other}"),
         }
     }

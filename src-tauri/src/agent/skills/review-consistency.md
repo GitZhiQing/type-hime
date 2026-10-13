@@ -2,6 +2,7 @@
 name: review-consistency
 description: 章节审校的一致性核对规程
 whenToUse: 一致性检查或去 AI 味改写时
+keywords: 一致性, 审校, 去AI味, 去 AI 味, 复检, 核对
 ---
 
 一致性核对：
