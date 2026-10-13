@@ -1,15 +1,18 @@
 //! diff 审阅写入（D0-6 编辑层）：agent 以 patch 提议 → diff 视图 → 人审 → 应用/丢弃。
-//! 提议队列在内存（应用重启即弃，与 agent 会话同生命周期）。
+//! 提议队列持久化于 app data（应用重启恢复未审提议）。
 
-use std::path::Path;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proposal {
     pub id: u64,
+    /// 提议归属的作品绝对路径（跨作品队列过滤）
+    #[serde(default)]
+    pub work_path: String,
     /// 相对作品根路径
     pub rel_path: String,
     /// unified diff（行级）
@@ -23,15 +26,40 @@ pub struct Proposal {
     pub created_at: String,
 }
 
-#[derive(Default)]
+/// 持久化文件（app data；应用重启恢复未审提议）。
+fn persist_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("type-hime").join("proposals.json"))
+}
+
+fn persist(queue: &ReviewQueue) {
+    if let Some(path) = persist_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(raw) = serde_json::to_string(queue) {
+            let _ = std::fs::write(path, raw);
+        }
+    }
+}
+
+fn restore() -> ReviewQueue {
+    persist_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+#[derive(Default, Serialize, Deserialize)]
 pub struct ReviewQueue {
     counter: u64,
     queue: Vec<Proposal>,
 }
 
 impl ReviewQueue {
+    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,
+        work_path: String,
         rel_path: String,
         old_content: &str,
         new_content: String,
@@ -42,6 +70,7 @@ impl ReviewQueue {
         let diff = unified_diff(old_content, &new_content, &rel_path);
         let p = Proposal {
             id: self.counter,
+            work_path,
             rel_path,
             diff,
             reason,
@@ -50,6 +79,7 @@ impl ReviewQueue {
             created_at: crate::works::now_iso(),
         };
         self.queue.push(p.clone());
+        persist(self);
         p
     }
 
@@ -59,7 +89,9 @@ impl ReviewQueue {
 
     pub fn take(&mut self, id: u64) -> Option<Proposal> {
         let idx = self.queue.iter().position(|p| p.id == id)?;
-        Some(self.queue.remove(idx))
+        let p = self.queue.remove(idx);
+        persist(self);
+        Some(p)
     }
 }
 
@@ -94,9 +126,15 @@ pub fn apply(work_dir: &Path, p: Proposal) -> Result<String, String> {
     Ok(msg)
 }
 
-/// Tauri 共享状态包装（工具与命令层共享同一队列）。
+/// Tauri 共享状态包装（工具与命令层共享同一队列；启动时恢复持久化的未审提议）。
 #[derive(Clone, Default)]
 pub struct SharedQueue(pub std::sync::Arc<Mutex<ReviewQueue>>);
+
+impl SharedQueue {
+    pub fn restored() -> Self {
+        Self(Arc::new(Mutex::new(restore())))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -124,6 +162,7 @@ mod tests {
 
         let mut q = ReviewQueue::default();
         let p = q.push(
+            dir.to_string_lossy().into_owned(),
             "outline/总纲.md".into(),
             "旧总纲\n",
             "新总纲\n".into(),

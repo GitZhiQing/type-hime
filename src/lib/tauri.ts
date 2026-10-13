@@ -308,6 +308,12 @@ export const api = {
       note: note ?? null,
     }),
 
+  // 成本账
+  getUsageSummary: (workPath: string) =>
+    invoke<{ input_tokens: number; output_tokens: number }>("get_usage_summary", {
+      workPath,
+    }),
+
   // 会话
   listSessions: (workPath: string) =>
     invoke<[string, string, string][]>("list_sessions", { workPath }),

@@ -39,13 +39,14 @@ async fn run() -> Result<(), String> {
             .unwrap_or_else(|| PathBuf::from(".")),
         queue: Arc::clone(&queue),
         on_proposal: Arc::new(|p| println!("    [新提议 #{}] {}：{}", p.id, p.rel_path, p.reason)),
+        expect: None,
     };
     let work_dir = tool_ctx.work_root.clone();
 
     let spec = chat_spec();
     let prompt = "读取 outline/总纲.md，然后调用 propose_edit 工具，在总纲末尾追加一行\"## 冒烟测试\"（给出修改后全文），理由写\"冒烟测试修改\"。";
 
-    let (final_text, new_messages) = kernel::run(
+    let outcome_final_text = kernel::run(
         &settings,
         Some(&tool_ctx),
         &spec,
@@ -59,6 +60,8 @@ async fn run() -> Result<(), String> {
         },
     )
     .await?;
+let final_text = outcome_final_text.text;
+let new_messages = outcome_final_text.messages;
 
     println!("[3] 最终输出（{} 字）：", final_text.chars().count());
     println!("{}", final_text);
@@ -69,6 +72,7 @@ async fn run() -> Result<(), String> {
         id: "smoke-test".into(),
         created_at: type_hime_lib::works::now_iso(),
         messages: new_messages,
+        usage: None,
     };
     type_hime_lib::agent::session::save_session(&work_dir, &sess)?;
     let back = type_hime_lib::agent::session::load_session(&work_dir, "smoke-test")?;

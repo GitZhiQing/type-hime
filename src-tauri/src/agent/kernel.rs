@@ -9,6 +9,7 @@ use rig::completion::Message;
 use rig::prelude::AgentBuilder;
 use rig::providers::openai::{OpenAIConfig, Route};
 use rig::streaming::{Item, StreamEvent};
+use serde::{Deserialize, Serialize};
 
 use super::events::AgentEvent;
 use super::skills;
@@ -56,7 +57,21 @@ pub fn build_preamble(spec: &AgentSpec, work_dir: Option<&Path>) -> String {
     parts.join("\n\n")
 }
 
-/// 一次完整的 agent 运行：流式翻译事件并回调；返回 (最终文本, 本轮新增消息)。
+/// 一次运行的成本报告（来自 provider 的真实计数）。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct UsageReport {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// kernel::run 的产出：最终文本 + 本轮消息 + usage。
+pub struct RunOutcome {
+    pub text: String,
+    pub messages: Vec<Message>,
+    pub usage: Option<UsageReport>,
+}
+
+/// 一次完整的 agent 运行：流式翻译事件并回调。
 pub async fn run<F>(
     settings: &AppSettings,
     tool_ctx: Option<&ToolCtx>,
@@ -64,7 +79,7 @@ pub async fn run<F>(
     history: Vec<Message>,
     prompt: &str,
     on_event: F,
-) -> Result<(String, Vec<Message>), String>
+) -> Result<RunOutcome, String>
 where
     F: Fn(AgentEvent) + Clone + Send + Sync + 'static,
 {
@@ -113,6 +128,7 @@ where
     let mut stream = agent.prompt(prompt).history(history).stream();
     let mut final_text = String::new();
     let mut new_messages: Vec<Message> = Vec::new();
+    let mut last_usage: Option<UsageReport> = None;
 
     while let Some(item) = stream.next().await {
         match item {
@@ -141,6 +157,12 @@ where
             Ok(MultiTurnStreamItem::FinalResponse(resp)) => {
                 final_text = resp.output().to_string();
                 new_messages = resp.messages.clone();
+                // usage 成本账（全程总计）
+                let u = resp.usage();
+                last_usage = Some(UsageReport {
+                    input_tokens: u.input_tokens.unwrap_or(0),
+                    output_tokens: u.output_tokens.unwrap_or(0),
+                });
                 on_event(AgentEvent::Final {
                     output: final_text.clone(),
                 });
@@ -148,6 +170,18 @@ where
             Ok(_) => {}
             Err(e) => {
                 let msg = format!("{e}");
+                // 部分成功语义：超轮次但已有文本产出（提议通常也已入队）时按完成收尾
+                let is_max_turns = msg.to_lowercase().contains("max turns");
+                if is_max_turns && !final_text.trim().is_empty() {
+                    on_event(AgentEvent::Final {
+                        output: final_text.clone(),
+                    });
+                    return Ok(RunOutcome {
+                        text: final_text,
+                        messages: Vec::new(), // 未经历 FinalResponse，无权威历史
+                        usage: last_usage,
+                    });
+                }
                 on_event(AgentEvent::Error {
                     message: msg.clone(),
                 });
@@ -156,7 +190,11 @@ where
         }
     }
 
-    Ok((final_text, new_messages))
+    Ok(RunOutcome {
+        text: final_text,
+        messages: new_messages,
+        usage: last_usage,
+    })
 }
 
 /// 连通性测试：发一次最小请求（设置页"测试连接"）。

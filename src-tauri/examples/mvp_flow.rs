@@ -54,6 +54,7 @@ async fn run() -> Result<(), String> {
         on_proposal: Arc::new(|p: &review::Proposal| {
             println!("    [提议 #{}] {}", p.id, p.rel_path);
         }),
+        expect: None,
     };
 
     // helper：writer 型任务（任意产物）
@@ -73,6 +74,7 @@ async fn run() -> Result<(), String> {
             work_root: dir.to_path_buf(),
             queue: Arc::clone(queue),
             on_proposal: Arc::new(|_| {}),
+        expect: None,
         };
         kernel::run(s, Some(&tc), &spec, Vec::new(), &prompt, |_| {}).await?;
         Ok(())
@@ -175,11 +177,12 @@ async fn run() -> Result<(), String> {
     let mut spec = reviewer_spec(&asm.system);
     spec.sections.push(("task".into(),
         "对 volumes/vol-01/chapters/ch-001.md 执行一致性检查：先 read 正文与账本，输出编号问题清单（每条带证据）；确定的硬伤用 propose_edit 提交修复。".into()));
-    let (review_text, _) = kernel::run(&s, Some(&ctx()), &spec, Vec::new(), &assembly::render_prompt(&asm), |ev| {
+    let outcome_review_text = kernel::run(&s, Some(&ctx()), &spec, Vec::new(), &assembly::render_prompt(&asm), |ev| {
         if let AgentEvent::TextDelta { text } = ev {
             print!("{text}");
         }
     }).await?;
+let review_text = outcome_review_text.text;
     println!();
     // 应用可能产生的修复提议
     let fixes = queue.lock().unwrap().list();
@@ -197,7 +200,8 @@ async fn run() -> Result<(), String> {
     let mut spec = reviewer_spec(&asm.system);
     spec.sections.push(("task".into(),
         "复检 volumes/vol-01/chapters/ch-001.md：核对上一轮修复后是否仍存在一致性问题；无问题则输出「复检通过」。".into()));
-    let (recheck, _) = kernel::run(&s, Some(&ctx()), &spec, Vec::new(), &assembly::render_prompt(&asm), |_| {}).await?;
+    let outcome_recheck = kernel::run(&s, Some(&ctx()), &spec, Vec::new(), &assembly::render_prompt(&asm), |_| {}).await?;
+let recheck = outcome_recheck.text;
     println!("复检输出前 200 字：{}", recheck.chars().take(200).collect::<String>());
 
     pipeline_confirm(Stage::Review, &mut pipeline_state)?;

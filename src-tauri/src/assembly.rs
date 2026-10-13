@@ -265,15 +265,25 @@ fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Resul
     });
     push("账本摘要".into(), ledger_text, "账本为空");
 
-    // 5. 最近章结尾（上一章正文尾部）
+    // 5. 最近章结尾（上一章正文尾部）；该章无审校记录时标注"待审文本"，
+    //    避免未审内容（可能含错误）被当作可信上文
     match previous_chapter(work_dir, opts) {
         Some((ch_id, full)) => {
             let chars: Vec<char> = full.chars().collect();
             let start = chars.len().saturating_sub(600);
             let tail: String = chars[start..].iter().collect();
+            let prev_no: String = ch_id.trim_start_matches("ch-").to_string();
+            let reviewed = crate::issues::list(work_dir, Some(&ch_id))
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            let tag = if reviewed {
+                String::new()
+            } else {
+                format!("[待审文本：{prev_no} 章尚未完成审校，若有异常以账本为准]\n")
+            };
             push(
                 format!("上一章（{ch_id}）结尾"),
-                Some(format!("…{tail}")),
+                Some(format!("{tag}…{tail}")),
                 "",
             );
         }

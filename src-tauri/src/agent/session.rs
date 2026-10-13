@@ -11,6 +11,9 @@ pub struct Session {
     pub id: String,
     pub created_at: String,
     pub messages: Vec<Message>,
+    /// 本次运行的 token 用量（provider 真实计数）
+    #[serde(default)]
+    pub usage: Option<crate::agent::kernel::UsageReport>,
 }
 
 /// 前端展示用的扁平消息

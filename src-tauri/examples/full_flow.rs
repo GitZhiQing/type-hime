@@ -46,6 +46,7 @@ async fn run() -> Result<(), String> {
         on_proposal: Arc::new(|p: &review::Proposal| {
             println!("    [提议 #{}] {}（{}）", p.id, p.rel_path, p.reason);
         }),
+        expect: None,
     };
 
     // ---------- 1. 章纲生成 ----------
@@ -67,7 +68,8 @@ async fn run() -> Result<(), String> {
         assembly::render_prompt(&assembled)
     );
     let mut _text = String::new();
-    let (text, _) = kernel::run(&settings, Some(&tool_ctx(&queue)), &spec, Vec::new(), &prompt, |_| {}).await?;
+    let outcome_text = kernel::run(&settings, Some(&tool_ctx(&queue)), &spec, Vec::new(), &prompt, |_| {}).await?;
+let text = outcome_text.text;
     _text = text;
     let (proposals_before, ) = (queue.lock().unwrap().list().len(), );
     let p = take_latest(&queue, &outline_path)?;

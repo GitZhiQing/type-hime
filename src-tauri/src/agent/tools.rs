@@ -11,13 +11,76 @@ use serde::Deserialize;
 
 use crate::review::{Proposal, ReviewQueue};
 
-/// 工具构建上下文（提议队列共享 + 完成回调：新提议通知前端）。
+/// 写入内容的轻校验期望（工具即校验器：不合规返回错误让模型当场自改）。
+#[derive(Debug, Clone)]
+pub struct WriteExpect {
+    pub min_chars: usize,
+    pub max_chars: usize,
+    /// 是否检查中文语境的半角标点
+    pub check_halfwidth: bool,
+}
+
+/// 校验生成内容：字数区间 + 中文正文半角标点混用。
+/// 返回 Err(提示文本) 时调用方应把提示作为工具结果返回给模型。
+pub fn validate_content(content: &str, expect: &WriteExpect) -> Result<(), String> {
+    let n = content.chars().count();
+    if n < expect.min_chars {
+        return Err(format!(
+            "[校验未过] 全文仅 {n} 字，要求不少于 {} 字。请补足内容后重新提交完整全文。",
+            expect.min_chars
+        ));
+    }
+    if n > expect.max_chars {
+        return Err(format!(
+            "[校验未过] 全文 {n} 字，超出上限 {} 字。请精简后重新提交完整全文。",
+            expect.max_chars
+        ));
+    }
+    if expect.check_halfwidth {
+        let chars: Vec<char> = content.chars().collect();
+        let is_cjk = |c: char| ('\u{4E00}'..='\u{9FFF}').contains(&c);
+        let mut hits = 0;
+        for i in 1..chars.len() {
+            let prev_cjk = is_cjk(chars[i - 1]);
+            let cur_half = matches!(chars[i], ',' | ':' | ';' | '!' | '?');
+            let next_ok = chars
+                .get(i + 1)
+                .map(|c| is_cjk(*c) || c.is_whitespace())
+                .unwrap_or(true);
+            if prev_cjk && cur_half && next_ok {
+                hits += 1;
+            }
+        }
+        if hits > 3 {
+            return Err(format!(
+                "[校验未过] 检测到 {hits} 处中文语句中的半角标点（, : ; ! ?），请统一为全角（，：；！？）后重新提交。"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 工具构建上下文（提议队列共享 + 完成回调 + 写入期望）。
 #[derive(Clone)]
 pub struct ToolCtx {
     pub work_root: PathBuf,
     pub queue: Arc<Mutex<ReviewQueue>>,
     /// 新提议产生时的回调（Tauri emit / 冒烟打印）
     pub on_proposal: Arc<dyn Fn(&Proposal) + Send + Sync>,
+    /// 写入校验期望（None=不校验）
+    #[allow(clippy::type_complexity)]
+    pub expect: Option<WriteExpect>,
+}
+
+impl ToolCtx {
+    /// 不带校验的上下文（对话/审校等自由场景）。
+    pub fn new(
+        work_root: PathBuf,
+        queue: Arc<Mutex<ReviewQueue>>,
+        on_proposal: Arc<dyn Fn(&Proposal) + Send + Sync>,
+    ) -> Self {
+        Self { work_root, queue, on_proposal, expect: None }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +162,11 @@ impl Tool for ProposeEdit {
         _ctx: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
+        if let Some(expect) = &self.ctx.expect {
+            if let Err(msg) = validate_content(&args.new_content, expect) {
+                return Ok(msg);
+            }
+        }
         Ok(match crate::works::read_file(&self.ctx.work_root, &args.path) {
             Ok(old) => {
                 let p = self
@@ -106,7 +174,14 @@ impl Tool for ProposeEdit {
                     .queue
                     .lock()
                     .unwrap()
-                    .push(args.path.clone(), &old, args.new_content, args.reason, false);
+                    .push(
+                        self.ctx.work_root.to_string_lossy().into_owned(),
+                        args.path.clone(),
+                        &old,
+                        args.new_content,
+                        args.reason,
+                        false,
+                    );
                 (self.ctx.on_proposal)(&p);
                 format!(
                     "已生成修改提议 #{}（{}），等待作者在 diff 审阅中处理；在作者处理前不要重复提交同一修改。",
@@ -155,6 +230,11 @@ impl Tool for ProposeWrite {
         _ctx: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
+        if let Some(expect) = &self.ctx.expect {
+            if let Err(msg) = validate_content(&args.content, expect) {
+                return Ok(msg);
+            }
+        }
         let exists = self.ctx.work_root.join(&args.path).exists();
         if exists {
             return Ok(format!(
@@ -163,6 +243,7 @@ impl Tool for ProposeWrite {
             ));
         }
         let p = self.ctx.queue.lock().unwrap().push(
+            self.ctx.work_root.to_string_lossy().into_owned(),
             args.path.clone(),
             "",
             args.content,

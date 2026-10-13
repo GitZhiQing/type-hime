@@ -285,16 +285,18 @@ async fn chat_stream(
         on_proposal: Arc::new(move |p: &Proposal| {
             let _ = app.emit("review:new", p);
         }),
+        expect: None,
     };
 
     let mut sess = session::load_session(&work_dir, &session_id).unwrap_or(Session {
         id: session_id.clone(),
         created_at: works::now_iso(),
         messages: Vec::new(),
+        usage: None,
     });
 
     let history = sess.messages.clone();
-    let (_text, new_messages) = kernel::run(
+    let outcome = kernel::run(
         &settings,
         Some(&tool_ctx),
         &spec,
@@ -306,8 +308,25 @@ async fn chat_stream(
     )
     .await?;
 
-    sess.messages.extend(new_messages);
+    sess.messages.extend(outcome.messages);
+    sess.usage = merge_usage(sess.usage, outcome.usage);
     session::save_session(&work_dir, &sess)
+}
+
+/// 累计 usage（None + x = x；Some + Some = 和）。
+fn merge_usage(
+    base: Option<agent::kernel::UsageReport>,
+    add: Option<agent::kernel::UsageReport>,
+) -> Option<agent::kernel::UsageReport> {
+    match (base, add) {
+        (None, None) => None,
+        (None, Some(u)) => Some(u),
+        (Some(b), None) => Some(b),
+        (Some(b), Some(u)) => Some(agent::kernel::UsageReport {
+            input_tokens: b.input_tokens + u.input_tokens,
+            output_tokens: b.output_tokens + u.output_tokens,
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -345,16 +364,26 @@ async fn generate_artifact(
         ));
     }
 
-    // 预检目标产物路径，写进任务指令
-    let (file_hint, stage_hint) = if target == "chapter_outline" {
+    // 预检目标产物路径，写进任务指令；写入校验期望（工具即校验器）
+    let (file_hint, stage_hint, expect) = if target == "chapter_outline" {
         (
             assembly::chapter_outline_path(volume, &chapter),
             "撰写本章章纲（用 propose_write 提交，路径见下）",
+            Some(agent::tools::WriteExpect {
+                min_chars: 80,
+                max_chars: 800,
+                check_halfwidth: true,
+            }),
         )
     } else {
         (
             assembly::chapter_path(volume, &chapter),
             "撰写本章正文全文（用 propose_write 提交，路径见下）",
+            Some(agent::tools::WriteExpect {
+                min_chars: 1500,
+                max_chars: 3800,
+                check_halfwidth: true,
+            }),
         )
     };
 
@@ -370,6 +399,7 @@ async fn generate_artifact(
         on_proposal: Arc::new(move |p: &review::Proposal| {
             let _ = app.emit("review:new", p);
         }),
+        expect,
     };
 
     let prompt = format!(
@@ -377,7 +407,7 @@ async fn generate_artifact(
         assembly::render_prompt(&assembled)
     );
 
-    let (_text, messages) = kernel::run(
+    let outcome = kernel::run(
         &settings,
         Some(&tool_ctx),
         &spec,
@@ -389,11 +419,12 @@ async fn generate_artifact(
     )
     .await?;
 
-    // 生成会话落盘（审计）
+    // 生成会话落盘（审计 + usage）
     let sess = Session {
         id: format!("gen-{target}-{volume:02}-{chapter}"),
         created_at: works::now_iso(),
-        messages,
+        messages: outcome.messages,
+        usage: outcome.usage,
     };
     let _ = session::save_session(&work_dir, &sess);
     Ok(())
@@ -424,6 +455,7 @@ async fn propose_ledger_update(
         on_proposal: Arc::new(move |p: &review::Proposal| {
             let _ = app.emit("review:new", p);
         }),
+        expect: None,
     };
 
     let prompt = format!(
@@ -433,7 +465,7 @@ async fn propose_ledger_update(
         ledger_path = ledger::LEDGER_PATH,
     );
 
-    let (_text, messages) = kernel::run(
+    let outcome = kernel::run(
         &settings,
         Some(&tool_ctx),
         &spec,
@@ -448,7 +480,8 @@ async fn propose_ledger_update(
     let sess = Session {
         id: format!("gen-ledger-{volume:02}-{chapter}"),
         created_at: works::now_iso(),
-        messages,
+        messages: outcome.messages,
+        usage: outcome.usage,
     };
     let _ = session::save_session(&work_dir, &sess);
     Ok(())
@@ -540,6 +573,7 @@ async fn run_review_core(
         on_proposal: Arc::new(move |p: &review::Proposal| {
             let _ = app.emit("review:new", p);
         }),
+        expect: None,
     };
 
     let prompt = format!(
@@ -547,7 +581,7 @@ async fn run_review_core(
         assembly::render_prompt(&assembled)
     );
 
-    let (report_text, messages) = kernel::run(
+    let outcome = kernel::run(
         &settings,
         Some(&tool_ctx),
         &spec,
@@ -558,11 +592,13 @@ async fn run_review_core(
         },
     )
     .await?;
+    let report_text = outcome.text;
 
     let sess = Session {
         id: format!("review-{mode}-{volume:02}-{chapter}"),
         created_at: works::now_iso(),
-        messages,
+        messages: outcome.messages,
+        usage: outcome.usage,
     };
     let _ = session::save_session(work_dir, &sess);
 
@@ -656,12 +692,13 @@ async fn recheck_chapter(
         on_proposal: Arc::new(move |p: &review::Proposal| {
             let _ = app.emit("review:new", p);
         }),
+        expect: None,
     };
     let prompt = format!(
         "{}\n\n# 待复检章节\n{ch_path}\n\n请开始复检。",
         assembly::render_prompt(&assembled)
     );
-    let (recheck_text, _messages) = kernel::run(
+    let outcome = kernel::run(
         &settings,
         Some(&tool_ctx),
         &spec,
@@ -672,6 +709,7 @@ async fn recheck_chapter(
         },
     )
     .await?;
+    let recheck_text = outcome.text;
     if !recheck_text.trim().is_empty() {
         let _ = issues::ingest_report(&work_dir, &chapter, "recheck", &recheck_text);
     }
@@ -688,7 +726,7 @@ async fn review_volume(
     on_event: Channel<AgentEvent>,
 ) -> Result<(), String> {
     let queue_arc: Arc<std::sync::Mutex<ReviewQueue>> = Arc::clone(&queue.0);
-    let work_dir = PathBuf::from(&work_path);
+    let _work_dir = PathBuf::from(&work_path);
     let work_dir = PathBuf::from(&work_path);
     // 收集本卷正文章节
     let chapters_dir = work_dir
@@ -748,6 +786,29 @@ fn list_issues(work_path: String, chapter: Option<String>) -> Result<Vec<issues:
     issues::list(&PathBuf::from(work_path), chapter.as_deref())
 }
 
+/// 作品级 token 成本汇总（扫 .sessions 的真实 usage）。
+#[tauri::command]
+fn get_usage_summary(work_path: String) -> Result<agent::kernel::UsageReport, String> {
+    let dir = PathBuf::from(work_path).join(".sessions");
+    let mut total = agent::kernel::UsageReport::default();
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("读取会话目录失败：{e}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            if let Ok(sess) = serde_json::from_str::<Session>(&raw) {
+                if let Some(u) = sess.usage {
+                    total.input_tokens += u.input_tokens;
+                    total.output_tokens += u.output_tokens;
+                }
+            }
+        }
+    }
+    Ok(total)
+}
+
 /// 裁决记录。
 #[tauri::command]
 fn record_issue_ruling(
@@ -793,7 +854,7 @@ fn reject_proposal(queue: State<'_, SharedQueue>, id: u64) -> Result<(), String>
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(SharedQueue::default())
+        .manage(SharedQueue::restored())
         .invoke_handler(tauri::generate_handler![
             // 作品底座
             get_works_root,
@@ -840,6 +901,7 @@ pub fn run() {
             review_volume,
             list_issues,
             record_issue_ruling,
+            get_usage_summary,
             // diff 审阅
             list_proposals,
             apply_proposal,

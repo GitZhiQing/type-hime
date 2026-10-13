@@ -43,7 +43,7 @@ pub struct SummaryOpts {
 /// 从文本中提取最高章号标记（ch-5 / ch-005 / 第5章）。
 pub fn extract_touched_chapter(text: &str) -> Option<u32> {
     let mut max: Option<u32> = None;
-    let mut bump = |n: u32, max: &mut Option<u32>| {
+    let bump = |n: u32, max: &mut Option<u32>| {
         if max.map_or(true, |m| n > m) {
             *max = Some(n);
         }
@@ -137,7 +137,7 @@ pub fn render_summary_with(ledger: &Ledger, opts: &SummaryOpts) -> String {
             || e.last_touched
                 .map_or(true, |t| t + opts.window >= opts.current_chapter)
     };
-    let mut sec = |out: &mut String, title: &str, items: &[LedgerEntry]| {
+    let sec = |out: &mut String, title: &str, items: &[LedgerEntry]| {
         if items.is_empty() {
             return;
         }

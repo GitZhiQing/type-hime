@@ -68,22 +68,27 @@ export function Workbench() {
   const [loreHidden, setLoreHidden] = useState(false);
   const [loreOpenAt, setLoreOpenAt] = useState("");
   const [loreBusy, setLoreBusy] = useState(false);
+  const [usage, setUsage] = useState<{ input_tokens: number; output_tokens: number } | null>(
+    null,
+  );
 
   const workPath = work?.path ?? "";
 
   const refresh = useCallback(async () => {
     if (!workPath) return;
     try {
-      const [t, l, p, s] = await Promise.all([
+      const [t, l, p, s, u] = await Promise.all([
         api.readTree(workPath),
         api.gitLog(workPath, 15),
         api.getPipeline(workPath),
         api.listSettings(workPath).catch(() => [] as SettingMeta[]),
+        api.getUsageSummary(workPath).catch(() => null),
       ]);
       setTree(t);
       setLog(l);
       setPipeline(p);
       setSettings(s);
+      setUsage(u);
     } catch (e) {
       toast.error(String(e));
     }
@@ -155,6 +160,14 @@ export function Workbench() {
         </Button>
         <span className="text-sm font-semibold">{work.name}</span>
         <span className="text-xs text-muted-foreground">{work.path}</span>
+        {usage && (usage.input_tokens > 0 || usage.output_tokens > 0) && (
+          <span
+            className="text-[11px] text-muted-foreground"
+            title="本作品全部 agent 调用的真实 token 用量（provider 计数）"
+          >
+            ≈{((usage.input_tokens + usage.output_tokens) / 10000).toFixed(1)}万 tokens
+          </span>
+        )}
         <Button
           variant="ghost"
           size="sm"
