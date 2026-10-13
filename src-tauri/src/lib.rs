@@ -10,7 +10,7 @@ pub mod settings;
 pub mod works;
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
@@ -21,7 +21,7 @@ use agent::session::{self, Session};
 use agent::spec::{chat_spec, ledger_spec, reviewer_spec, writer_spec, AgentSpec};
 use agent::tools::ToolCtx;
 use lore::{SettingMeta, Visibility};
-use pipeline::{PipelineState, PipelineView, Stage};
+use pipeline::{PipelineView, Stage};
 use review::{Proposal, SharedQueue};
 use settings::{ProviderProfile, SettingsView};
 use works::{TreeNode, WorkSummary};

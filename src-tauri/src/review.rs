@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use similar::{ChangeTag, TextDiff};
+use similar::TextDiff;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Proposal {

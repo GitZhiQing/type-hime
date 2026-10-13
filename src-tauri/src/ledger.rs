@@ -76,7 +76,7 @@ pub fn parse(raw: &str) -> Ledger {
 /// 装配用摘要（切片 6 注入 prompt）。
 pub fn render_summary(ledger: &Ledger) -> String {
     let mut out = String::from("# 连续性账本摘要\n");
-    let mut sec = |out: &mut String, title: &str, items: &[LedgerEntry]| {
+    let sec = |out: &mut String, title: &str, items: &[LedgerEntry]| {
         if !items.is_empty() {
             out.push_str(&format!("\n## {title}\n"));
             for e in items {
