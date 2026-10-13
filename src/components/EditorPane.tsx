@@ -3,7 +3,7 @@ import { api } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Save, Loader2, FilePlus2 } from "lucide-react";
+import { Save, Loader2, FilePlus2, EyeOff, Eye } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 
 interface EditorProps {
   workPath: string;
@@ -30,6 +32,10 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [newPath, setNewPath] = useState("");
   const [error, setError] = useState("");
+  const [settingHidden, setSettingHidden] = useState(false);
+  const [settingOpenAt, setSettingOpenAt] = useState<string>("");
+
+  const isSetting = relPath?.startsWith("settings/") ?? false;
 
   useEffect(() => {
     if (!relPath) {
@@ -47,7 +53,39 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+    // 同步设定元数据（可见性控制条）
+    if (relPath.startsWith("settings/")) {
+      api
+        .listSettings(workPath)
+        .then((all) => {
+          const meta = all.find((m) => m.path === relPath);
+          setSettingHidden(meta?.visibility === "hidden");
+          setSettingOpenAt(meta?.open_at_vol ? String(meta.open_at_vol) : "");
+        })
+        .catch(() => {});
+    }
   }, [workPath, relPath]);
+
+  async function applyVisibility(hidden: boolean, openAt: string) {
+    if (!relPath) return;
+    try {
+      await api.setSettingVisibility(
+        workPath,
+        relPath,
+        hidden,
+        openAt ? Number(openAt) : null,
+      );
+      setSettingHidden(hidden);
+      setSettingOpenAt(openAt);
+      // frontmatter 被改写，重读
+      const text = await api.readFile(workPath, relPath);
+      setContent(text);
+      setSaved(text);
+      toast.success(hidden ? "已隐藏（红线：不进任何 prompt）" : "已设为可见");
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }
 
   const dirty = content !== saved;
 
@@ -118,6 +156,42 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
       {error && (
         <div className="border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
           {error}
+        </div>
+      )}
+
+      {isSetting && relPath && (
+        <div className="flex shrink-0 items-center gap-3 border-b bg-muted/30 px-3 py-1.5 text-xs">
+          <span className="flex items-center gap-1.5">
+            {settingHidden ? (
+              <EyeOff className="size-3.5 text-amber-600" />
+            ) : (
+              <Eye className="size-3.5 text-muted-foreground" />
+            )}
+            可见性
+          </span>
+          <label className="flex items-center gap-1">
+            <Switch
+              checked={settingHidden}
+              onCheckedChange={(v) => applyVisibility(v, settingOpenAt)}
+            />
+            隐藏
+          </label>
+          <label className="flex items-center gap-1 text-muted-foreground">
+            开放卷
+            <Input
+              value={settingOpenAt}
+              onChange={(e) => {
+                const v = e.currentTarget.value.replace(/[^0-9]/g, "");
+                setSettingOpenAt(v);
+              }}
+              onBlur={() => applyVisibility(settingHidden, settingOpenAt)}
+              placeholder="不限"
+              className="h-6 w-14 text-xs"
+            />
+          </label>
+          <span className="text-muted-foreground/70">
+            隐藏/未到开放卷的条目不进任何 prompt（红线）
+          </span>
         </div>
       )}
 

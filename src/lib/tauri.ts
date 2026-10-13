@@ -79,6 +79,20 @@ export interface PipelineView {
   gates: GateInfo[];
 }
 
+export interface SettingMeta {
+  name: string;
+  kind: string; // character | worldview | mystery
+  visibility: "visible" | "hidden";
+  open_at_vol: number | null;
+  path: string;
+}
+
+export interface Ledger {
+  characters: string[];
+  facts: string[];
+  foreshadows: string[];
+}
+
 export const api = {
   getWorksRoot: () => invoke<string>("get_works_root"),
   listWorks: () => invoke<WorkSummary[]>("list_works"),
@@ -138,6 +152,39 @@ export const api = {
     invoke<PipelineView>("pipeline_skip", { workPath, stage }),
   pipelineRedo: (workPath: string, stage: Stage) =>
     invoke<PipelineView>("pipeline_redo", { workPath, stage }),
+
+  // 设定库 + 账本
+  listSettings: (workPath: string) =>
+    invoke<SettingMeta[]>("list_settings", { workPath }),
+  createSetting: (
+    workPath: string,
+    kind: string,
+    name: string,
+    content: string,
+    hidden: boolean,
+    openAtVol: number | null,
+  ) =>
+    invoke<SettingMeta>("create_setting", {
+      workPath,
+      kind,
+      name,
+      content,
+      hidden,
+      openAtVol,
+    }),
+  setSettingVisibility: (
+    workPath: string,
+    relPath: string,
+    hidden: boolean,
+    openAtVol: number | null,
+  ) =>
+    invoke<void>("set_setting_visibility", {
+      workPath,
+      relPath,
+      hidden,
+      openAtVol,
+    }),
+  getLedger: (workPath: string) => invoke<Ledger>("get_ledger", { workPath }),
 
   // 会话
   listSessions: (workPath: string) =>

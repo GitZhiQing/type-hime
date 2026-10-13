@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, PipelineView, TreeNode, WorkSummary } from "@/lib/tauri";
+import {
+  api,
+  PipelineView,
+  SettingMeta,
+  TreeNode,
+  WorkSummary,
+} from "@/lib/tauri";
 import { ResourceTree } from "@/components/ResourceTree";
 import { EditorPane } from "@/components/EditorPane";
 import { ChatPane } from "@/components/ChatPane";
@@ -12,8 +18,34 @@ import {
 } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
-import { BookOpen, History, ArrowLeft, RefreshCw, Settings } from "lucide-react";
+import {
+  BookOpen,
+  History,
+  ArrowLeft,
+  RefreshCw,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 
 export function Workbench() {
   const navigate = useNavigate();
@@ -24,24 +56,60 @@ export function Workbench() {
   const [selected, setSelected] = useState<TreeNode | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [pipeline, setPipeline] = useState<PipelineView | null>(null);
+  const [settings, setSettings] = useState<SettingMeta[]>([]);
+  const [loreOpen, setLoreOpen] = useState(false);
+  const [loreKind, setLoreKind] = useState("character");
+  const [loreName, setLoreName] = useState("");
+  const [loreContent, setLoreContent] = useState("");
+  const [loreHidden, setLoreHidden] = useState(false);
+  const [loreOpenAt, setLoreOpenAt] = useState("");
+  const [loreBusy, setLoreBusy] = useState(false);
 
   const workPath = work?.path ?? "";
 
   const refresh = useCallback(async () => {
     if (!workPath) return;
     try {
-      const [t, l, p] = await Promise.all([
+      const [t, l, p, s] = await Promise.all([
         api.readTree(workPath),
         api.gitLog(workPath, 15),
         api.getPipeline(workPath),
+        api.listSettings(workPath).catch(() => [] as SettingMeta[]),
       ]);
       setTree(t);
       setLog(l);
       setPipeline(p);
+      setSettings(s);
     } catch (e) {
       toast.error(String(e));
     }
   }, [workPath]);
+
+  async function handleCreateSetting() {
+    if (!loreName.trim() || loreBusy) return;
+    setLoreBusy(true);
+    try {
+      await api.createSetting(
+        workPath,
+        loreKind,
+        loreName.trim(),
+        loreContent,
+        loreHidden,
+        loreOpenAt ? Number(loreOpenAt) : null,
+      );
+      setLoreOpen(false);
+      setLoreName("");
+      setLoreContent("");
+      setLoreHidden(false);
+      setLoreOpenAt("");
+      refresh();
+      toast.success("设定条目已创建");
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setLoreBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!work) {
@@ -113,6 +181,15 @@ export function Workbench() {
             <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs font-medium text-muted-foreground">
               <BookOpen className="size-3.5" />
               资源树
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-7 px-2 text-xs"
+                onClick={() => setLoreOpen(true)}
+              >
+                <Sparkles data-icon="inline-start" />
+                新设定
+              </Button>
             </div>
             <ScrollArea className="flex-1">
               {tree ? (
@@ -122,6 +199,13 @@ export function Workbench() {
                     selected={selected?.path ?? null}
                     onSelect={setSelected}
                     onAction={handleAction}
+                    hiddenPaths={
+                      new Set(
+                        settings
+                          .filter((s) => s.visibility === "hidden")
+                          .map((s) => s.path),
+                      )
+                    }
                   />
                 </div>
               ) : (
@@ -162,6 +246,74 @@ export function Workbench() {
           />
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {/* 新建设定条目 */}
+      <Dialog open={loreOpen} onOpenChange={setLoreOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>新建设定条目</DialogTitle>
+            <DialogDescription>
+              保存为 md + frontmatter 并自动 git 提交。隐藏条目是红线：不进任何 prompt。
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel>类型</FieldLabel>
+              <Select value={loreKind} onValueChange={(v) => v && setLoreKind(v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="character">人物</SelectItem>
+                  <SelectItem value="worldview">世界观</SelectItem>
+                  <SelectItem value="mystery">悬念/伏笔</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="lore-name">名称</FieldLabel>
+              <Input
+                id="lore-name"
+                value={loreName}
+                onChange={(e) => setLoreName(e.currentTarget.value)}
+                placeholder="例如：林晚 / 修行体系 / 黑龙身份"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="lore-content">内容</FieldLabel>
+              <Textarea
+                id="lore-content"
+                value={loreContent}
+                onChange={(e) => setLoreContent(e.currentTarget.value)}
+                className="min-h-24 text-sm"
+                placeholder="设定的正文内容"
+              />
+            </Field>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={loreHidden} onCheckedChange={setLoreHidden} />
+                隐藏
+              </label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                开放卷
+                <Input
+                  value={loreOpenAt}
+                  onChange={(e) =>
+                    setLoreOpenAt(e.currentTarget.value.replace(/[^0-9]/g, ""))
+                  }
+                  placeholder="不限"
+                  className="h-8 w-16"
+                />
+              </label>
+            </div>
+          </FieldGroup>
+          <DialogFooter>
+            <Button onClick={handleCreateSetting} disabled={!loreName.trim() || loreBusy}>
+              创建
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

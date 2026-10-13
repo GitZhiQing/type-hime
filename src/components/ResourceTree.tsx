@@ -11,6 +11,7 @@ import {
 import {
   ChevronDown,
   ChevronRight,
+  EyeOff,
   FileText,
   Folder,
   MoreVertical,
@@ -21,11 +22,20 @@ interface TreeProps {
   selected: string | null;
   onSelect: (node: TreeNode) => void;
   onAction: (action: "delete" | "restore", node: TreeNode) => void;
+  /** 隐藏的设定条目路径集合（显示 EyeOff 徽标） */
+  hiddenPaths?: Set<string>;
   /** 深度（根为 -1，不渲染根行） */
   depth?: number;
 }
 
-export function ResourceTree({ node, selected, onSelect, onAction, depth = -1 }: TreeProps) {
+export function ResourceTree({
+  node,
+  selected,
+  onSelect,
+  onAction,
+  hiddenPaths,
+  depth = -1,
+}: TreeProps) {
   const [open, setOpen] = useState(true);
 
   if (depth === -1) {
@@ -38,6 +48,7 @@ export function ResourceTree({ node, selected, onSelect, onAction, depth = -1 }:
             selected={selected}
             onSelect={onSelect}
             onAction={onAction}
+            hiddenPaths={hiddenPaths}
             depth={0}
           />
         ))}
@@ -73,6 +84,7 @@ export function ResourceTree({ node, selected, onSelect, onAction, depth = -1 }:
                 selected={selected}
                 onSelect={onSelect}
                 onAction={onAction}
+                hiddenPaths={hiddenPaths}
                 depth={depth + 1}
               />
             ))}
@@ -81,6 +93,8 @@ export function ResourceTree({ node, selected, onSelect, onAction, depth = -1 }:
       </div>
     );
   }
+
+  const hidden = hiddenPaths?.has(node.path) ?? false;
 
   return (
     <div
@@ -96,7 +110,10 @@ export function ResourceTree({ node, selected, onSelect, onAction, depth = -1 }:
         onClick={() => onSelect(node)}
       >
         <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{node.name}</span>
+        <span className={cn("truncate", hidden && "opacity-50")}>{node.name}</span>
+        {hidden && (
+          <EyeOff className="size-3 shrink-0 text-amber-600" aria-label="已隐藏" />
+        )}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger

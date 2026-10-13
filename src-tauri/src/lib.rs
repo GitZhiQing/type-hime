@@ -1,5 +1,8 @@
 pub mod agent;
+mod frontmatter;
 mod git;
+pub mod ledger;
+pub mod lore;
 mod pipeline;
 pub mod settings;
 pub mod works;
@@ -12,6 +15,7 @@ use agent::events::AgentEvent;
 use agent::kernel;
 use agent::session::{self, Session};
 use agent::spec::{chat_spec, AgentSpec};
+use lore::{SettingMeta, Visibility};
 use pipeline::{PipelineState, PipelineView, Stage};
 use settings::{ProviderProfile, SettingsView};
 use works::{TreeNode, WorkSummary};
@@ -173,6 +177,51 @@ fn pipeline_redo(work_path: String, stage: Stage) -> Result<PipelineView, String
 }
 
 // ---------------------------------------------------------------------------
+// 设定库 + 账本
+
+#[tauri::command]
+fn list_settings(work_path: String) -> Result<Vec<SettingMeta>, String> {
+    lore::list_settings(&PathBuf::from(work_path))
+}
+
+#[tauri::command]
+fn create_setting(
+    work_path: String,
+    kind: String,
+    name: String,
+    content: String,
+    hidden: bool,
+    open_at_vol: Option<u32>,
+) -> Result<SettingMeta, String> {
+    let visibility = if hidden { Visibility::Hidden } else { Visibility::Visible };
+    lore::create_setting(
+        &PathBuf::from(work_path),
+        &kind,
+        &name,
+        &content,
+        visibility,
+        open_at_vol,
+    )
+}
+
+#[tauri::command]
+fn set_setting_visibility(
+    work_path: String,
+    rel_path: String,
+    hidden: bool,
+    open_at_vol: Option<u32>,
+) -> Result<(), String> {
+    let visibility = if hidden { Visibility::Hidden } else { Visibility::Visible };
+    lore::set_visibility(&PathBuf::from(work_path), &rel_path, visibility, open_at_vol)
+}
+
+/// 账本视图（结构化解析）。
+#[tauri::command]
+fn get_ledger(work_path: String) -> Result<ledger::Ledger, String> {
+    ledger::read_ledger(&PathBuf::from(work_path))
+}
+
+// ---------------------------------------------------------------------------
 // 会话（通用对话 agent，中栏会话流）
 
 #[tauri::command]
@@ -246,6 +295,11 @@ pub fn run() {
             pipeline_confirm,
             pipeline_skip,
             pipeline_redo,
+            // 设定库 + 账本
+            list_settings,
+            create_setting,
+            set_setting_visibility,
+            get_ledger,
             // 会话
             list_sessions,
             load_session_view,
