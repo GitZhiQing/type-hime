@@ -457,6 +457,8 @@ async fn run_subagent(
     .await?;
     let sess = Session {
         messages: outcome.messages,
+        // 累计与最近一轮同填：子会话也在成本汇总（get_usage_summary 按 usage 求和）口径内
+        usage: outcome.usage,
         last_usage: outcome.usage,
         ..Session::new(sid)
     };

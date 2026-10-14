@@ -156,7 +156,16 @@ pub fn load_session(store: &SessionStore, id: &str) -> Result<Session, String> {
     serde_json::from_str(&raw).map_err(|e| format!("解析会话失败：{e}"))
 }
 
-/// 会话列表（按创建时间倒序），附标题与首条用户消息预览。
+/// 内部会话前缀（子 Agent 与生成/审校流程的独立档案）：不进入用户会话列表，
+/// 档案仍保留在磁盘（参与成本汇总等扫描）；R10 起过滤（D35 观察项落地）。
+const INTERNAL_SESSION_PREFIXES: &[&str] = &[
+    "agent-",     // 子 Agent 会话（spawn_agent）
+    "gen-",       // 生成流会话（章纲/正文/回写/整理）
+    "review-",    // 审校流会话（一致性/去AI味/复检/审卷）
+    "ledger-",    // 账本类流程会话
+];
+
+/// 会话列表（按创建时间倒序），附标题与首条用户消息预览；内部会话（agent-/gen-/review-/ledger-）不列出。
 pub fn list_sessions(store: &SessionStore) -> Result<Vec<SessionMeta>, String> {
     let dir = store.dir()?;
     let mut out = Vec::new();
@@ -164,6 +173,13 @@ pub fn list_sessions(store: &SessionStore) -> Result<Vec<SessionMeta>, String> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let stem = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if INTERNAL_SESSION_PREFIXES.iter().any(|p| stem.starts_with(p)) {
                 continue;
             }
             if let Ok(raw) = std::fs::read_to_string(&path) {
@@ -505,6 +521,23 @@ mod tests {
         let fresh = load_or_new_session(&store, "no-such").unwrap();
         assert!(fresh.messages.is_empty() && fresh.goal.is_none());
 
+        let _ = std::fs::remove_dir_all(store.dir().unwrap());
+    }
+
+    #[test]
+    fn list_filters_internal_sessions() {
+        // R10：子 Agent 与流程会话不进用户列表（档案仍在磁盘供成本汇总扫描）
+        let store = temp_store("filter-internal");
+        save_session(&store, &sample("s-normal")).unwrap();
+        save_session(&store, &sample("agent-general-st-1")).unwrap();
+        save_session(&store, &sample("gen-chapter-01-ch-003")).unwrap();
+        save_session(&store, &sample("review-consistency-01-ch-003")).unwrap();
+        save_session(&store, &sample("ledger-tidy-task")).unwrap();
+        let list = list_sessions(&store).unwrap();
+        assert_eq!(list.len(), 1, "仅用户会话列出：{list:?}");
+        assert_eq!(list[0].id, "s-normal");
+        // 档案仍在磁盘（成本汇总口径不因过滤丢失）
+        assert!(load_session(&store, "agent-general-st-1").is_ok());
         let _ = std::fs::remove_dir_all(store.dir().unwrap());
     }
 

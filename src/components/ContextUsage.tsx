@@ -91,14 +91,6 @@ export function ContextUsage({ workPath, sessionId, refreshKey = 0 }: ContextUsa
             className={nearLimit ? "stroke-amber-500" : "stroke-primary"}
           />
         </svg>
-        <span
-          className={cn(
-            "absolute text-[8px] leading-none font-medium tabular-nums",
-            nearLimit ? "text-amber-700" : "text-muted-foreground",
-          )}
-        >
-          {pct}
-        </span>
       </PreviewCardTrigger>
       <PreviewCardContent>
         {/* 头部：标题 + 数值 */}
@@ -133,14 +125,14 @@ export function ContextUsage({ workPath, sessionId, refreshKey = 0 }: ContextUsa
         </ul>
         {/* 参考区 */}
         <div className="mt-2.5 border-t pt-2 text-[11px] text-muted-foreground">
-          <div className="flex justify-between">
-            <span>会话累计</span>
-            <span className="tabular-nums">
-              {ov.session_usage
-                ? `入 ${fmtK(ov.session_usage.input_tokens)} / 出 ${fmtK(ov.session_usage.output_tokens)}`
-                : "-"}
-            </span>
-          </div>
+          {ov.session_usage && (
+            <div className="flex justify-between">
+              <span>会话累计</span>
+              <span className="tabular-nums">
+                入 {fmtK(ov.session_usage.input_tokens)} / 出 {fmtK(ov.session_usage.output_tokens)}
+              </span>
+            </div>
+          )}
           <div className="mt-1 flex justify-between">
             <span>装配估算（生成流口径 · 本地近似）</span>
             <span className="tabular-nums">≈{fmtK(ov.assembly_tokens ?? 0)}</span>
