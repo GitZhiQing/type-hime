@@ -201,14 +201,15 @@ export function ArtifactsPane({
 
   return (
     <section className="flex h-full min-w-0 flex-col">
-      {/* 标签条 */}
+      {/* 标签条：标签可压缩（VS Code 式），容器禁滚动——overflow-x-auto 会在溢出时
+          同时带出横竖两根滚动条（overflow-y 的 visible 被计算为 auto），故用 overflow-hidden */}
       <div className="flex h-9 shrink-0 items-stretch border-b bg-muted/30">
-        <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+        <div className="flex min-w-0 flex-1 items-stretch overflow-hidden">
           {tabs.map((t) => (
             <div
               key={t.id}
               className={cn(
-                "group flex max-w-44 shrink-0 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
+                "group flex min-w-10 max-w-44 flex-1 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
                 t.id === activeId
                   ? "border-t-2 border-t-primary bg-background text-foreground"
                   : "border-t-2 border-t-transparent text-muted-foreground hover:bg-background/60",
@@ -232,7 +233,7 @@ export function ArtifactsPane({
               <button
                 type="button"
                 aria-label={`关闭 ${t.title}`}
-                className="rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
+                className="ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
                 onClick={() => closeTab(t.id)}
               >
                 <X className="size-3" />
