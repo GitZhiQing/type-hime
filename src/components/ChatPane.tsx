@@ -35,6 +35,7 @@ import { ProposalCard, type InlineProposal } from "@/components/ai/proposal-card
 import { ConfirmationCard, type ApprovalView } from "@/components/ai/confirmation";
 import { TaskCard, type TaskView } from "@/components/ai/task";
 import { PermissionSelect } from "@/components/PermissionSelect";
+import { ContextUsage } from "@/components/ContextUsage";
 import { SLASH_DEFS } from "@/lib/slash";
 
 interface ChatProps {
@@ -107,6 +108,8 @@ export function ChatPane({
   const [issueNotice, setIssueNotice] = useState<{ open: number; total: number } | null>(null);
   /** 当前会话权限档位（R4-③：输入框左下角下拉；scope=work） */
   const [permMode, setPermMode] = useState<PermissionMode>("confirm");
+  /** 轮次计数（R10：一轮完成 +1，驱动输入框下方上下文用量刷新） */
+  const [turnKey, setTurnKey] = useState(0);
   const busyRef = useRef(false);
 
   const isWork = scope === "work" && !!workPath;
@@ -337,6 +340,7 @@ export function ChatPane({
     } finally {
       setBusy(false);
       busyRef.current = false;
+      setTurnKey((k) => k + 1); // 上下文用量刷新（本轮已落盘）
     }
   }
 
@@ -740,6 +744,9 @@ export function ChatPane({
                 mode={permMode}
                 onChange={changePermissionMode}
               />
+            )}
+            {isWork && workPath && (
+              <ContextUsage workPath={workPath} sessionId={sessionId} refreshKey={turnKey} />
             )}
             <PromptInputSubmit />
           </PromptInputToolbar>

@@ -10,7 +10,6 @@ import {
 import { ChatPane } from "@/components/ChatPane";
 import { SessionList } from "@/components/SessionList";
 import { PlanBar } from "@/components/PlanBar";
-import { ContextBar } from "@/components/ContextBar";
 import { GoalBar } from "@/components/GoalBar";
 import { ArtifactsPane } from "@/components/artifacts/ArtifactsPane";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -155,11 +154,6 @@ export function Workbench() {
                     onChange={setPipeline}
                   />
                 )}
-                <ContextBar
-                  workPath={workPath}
-                  sessionId={sessionId}
-                  refreshKey={sessionRefresh}
-                />
               </>
             }
           />
