@@ -543,6 +543,19 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
         ),
         "write_agent" => ok!(type_hime_lib::agent::profiles::write_profile(&s("name"), &s("content")).map(|_| ())),
         "delete_agent" => ok!(type_hime_lib::agent::profiles::delete_profile(&s("name")).map(|_| ())),
+        "get_agent_profile" => ok!(
+            type_hime_lib::agent::profiles::get_profile(&s("name"))
+                .ok_or_else(|| format!("子 Agent {} 不存在", s("name")))
+        ),
+        "save_agent_profile" => {
+            let parsed: Result<type_hime_lib::agent::profiles::AgentProfile, String> =
+                serde_json::from_value(body["profile"].clone())
+                    .map_err(|e| format!("参数解析失败：{e}"));
+            ok!(parsed.and_then(|profile| {
+                type_hime_lib::agent::profiles::save_agent_profile(&profile).map(|_| ())
+            }))
+        }
+        "list_tools" => ok!(Ok::<_, String>(type_hime_lib::agent::tools::list_tool_meta())),
 
         other => (
             StatusCode::NOT_FOUND,

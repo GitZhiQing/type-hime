@@ -52,6 +52,9 @@ pub enum AgentEvent {
         /// 子 Agent 名（R8-③：spawn_agent 委派时标注；None=普通子任务卡）
         #[serde(skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
+        /// 子 Agent 身份色 key（R9：profile.color；None=前端按名 hash 取色）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
     },
     /// 子任务文本增量（子流程的 TextDelta 转发）
     SubTaskDelta { id: String, text: String },
@@ -77,6 +80,11 @@ pub enum AgentEvent {
         id: String,
         status: String,
         summary: String,
+        /// 子 Agent 用量（R9：header 展示「耗时 · tokens」；None=普通子任务）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tokens: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
     },
     /// 提议已被自动应用（R4：完全访问档；前端同步内联卡与审阅列表）
     ProposalApplied {

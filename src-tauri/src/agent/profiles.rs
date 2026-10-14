@@ -16,6 +16,10 @@ pub struct AgentProfile {
     pub description: String,
     #[serde(default)]
     pub model: Option<String>,
+    /// 身份色（R9：ZCode 同款 8 色板 yellow/red/orange/green/cyan/blue/purple/pink；
+    /// None=按名称 hash 取色）
+    #[serde(default)]
+    pub color: Option<String>,
     /// 工具白名单（空 = 通用集；spawn_agent 永远被剔除——子 Agent 不可递归派生）
     #[serde(default)]
     pub tools: Vec<String>,
@@ -28,6 +32,11 @@ pub struct AgentProfile {
     #[serde(default)]
     pub body: String,
 }
+
+/// 合法身份色（与前端色板一致）。
+pub const AGENT_COLORS: &[&str] = &[
+    "yellow", "red", "orange", "green", "cyan", "blue", "purple", "pink",
+];
 
 /// 内置子 Agent（通用基础模板；用户可基于此在管理页复制自定义）。
 const BUILTIN_PROFILES: &[(&str, &str)] = &[("general.md", include_str!("profiles/general.md"))];
@@ -44,7 +53,8 @@ pub fn parse_profile(raw: &str, fallback_name: &str) -> AgentProfile {
     if let Some(rest) = raw.strip_prefix("---\n") {
         if let Some(end) = rest.find("\n---") {
             let fm = &rest[..end];
-            body = rest[end + 4..].trim_start_matches('\n').to_string();
+            // 尾换行归一：format_profile 输出带文件尾 \n，往返需一致
+            body = rest[end + 4..].trim_start_matches('\n').trim_end().to_string();
             for line in fm.lines() {
                 if let Some(v) = line.strip_prefix("name:") {
                     p.name = v.trim().to_string();
@@ -54,6 +64,11 @@ pub fn parse_profile(raw: &str, fallback_name: &str) -> AgentProfile {
                     let v = v.trim();
                     if !v.is_empty() {
                         p.model = Some(v.to_string());
+                    }
+                } else if let Some(v) = line.strip_prefix("color:") {
+                    let v = v.trim();
+                    if AGENT_COLORS.contains(&v) {
+                        p.color = Some(v.to_string());
                     }
                 } else if let Some(v) = line.strip_prefix("tools:") {
                     p.tools = split_list(v);
@@ -130,6 +145,8 @@ pub struct AgentMeta {
     /// 用户层是否覆盖了同名内置
     pub overridden: bool,
     pub max_turns: usize,
+    /// 身份色 key（None=按名 hash 取色）
+    pub color: Option<String>,
 }
 
 /// 子 Agent 原始 md 读取结果（管理页编辑用）。
@@ -158,8 +175,48 @@ pub fn list_profile_meta() -> Vec<AgentMeta> {
             },
             overridden: false, // 加载结果已合并，covered 由 source 推导；保留字段对齐技能清单形态
             max_turns: p.max_turns,
+            color: p.color,
         })
         .collect()
+}
+
+/// 结构化定义 → md 全文（R9：表单保存的单一格式源；与 parse_profile 往返一致）。
+pub fn format_profile(p: &AgentProfile) -> String {
+    let mut fm = String::from("---\n");
+    fm.push_str(&format!("name: {}\n", p.name));
+    fm.push_str(&format!("description: {}\n", p.description));
+    if let Some(c) = &p.color {
+        fm.push_str(&format!("color: {c}\n"));
+    }
+    if let Some(m) = &p.model {
+        if !m.trim().is_empty() {
+            fm.push_str(&format!("model: {m}\n"));
+        }
+    }
+    if !p.tools.is_empty() {
+        fm.push_str(&format!("tools: {}\n", p.tools.join(", ")));
+    }
+    if !p.skills.is_empty() {
+        fm.push_str(&format!("skills: {}\n", p.skills.join(", ")));
+    }
+    fm.push_str(&format!("max_turns: {}\n", p.max_turns.max(1)));
+    fm.push_str("---\n\n");
+    fm.push_str(p.body.trim());
+    fm.push('\n');
+    fm
+}
+
+/// 结构化保存（R9 管理页表单）：校验 → format → 落用户级。
+pub fn save_agent_profile(p: &AgentProfile) -> Result<PathBuf, String> {
+    if p.description.trim().is_empty() {
+        return Err("描述不能为空（它决定根 Agent 何时委派这个子 Agent）".to_string());
+    }
+    if p.body.trim().is_empty() {
+        return Err("系统提示词不能为空".to_string());
+    }
+    let mut clean = p.clone();
+    clean.color = clean.color.filter(|c| AGENT_COLORS.contains(&c.as_str()));
+    write_profile(&clean.name, &format_profile(&clean))
 }
 
 /// 读取子 Agent 原始 md（用户层优先，回落内置）。
@@ -176,6 +233,11 @@ pub fn read_profile_raw(name: &str) -> Option<(String, String)> {
         .iter()
         .find(|(f, _)| f.trim_end_matches(".md") == name)
         .map(|(_, raw)| ((*raw).to_string(), "builtin".to_string()))
+}
+
+/// 读取结构化定义（R9 表单视图；用户层优先回落内置）。
+pub fn get_profile(name: &str) -> Option<AgentProfile> {
+    load_profiles().into_iter().find(|p| p.name == name)
 }
 
 /// 保存子 Agent（用户级；同名覆盖内置）。返回保存路径供提示。
@@ -262,6 +324,40 @@ mod tests {
         assert_eq!(p2.body, "正文而已");
         let p3 = parse_profile("---\ndescription: d\n---\nbody", "fb3");
         assert_eq!(p3.name, "fb3");
+    }
+
+    #[test]
+    fn format_profile_roundtrip() {
+        // R9：表单保存格式与解析往返一致
+        let p = AgentProfile {
+            name: "writer-pro".into(),
+            description: "写手".into(),
+            model: Some("deepseek-chat".into()),
+            color: Some("cyan".into()),
+            tools: vec!["read_file".into(), "propose_write".into()],
+            skills: vec!["writer-basics".into()],
+            max_turns: 10,
+            body: "你是写手。
+第二行。".into(),
+        };
+        let md = format_profile(&p);
+        let back = parse_profile(&md, "fallback");
+        assert_eq!(back.name, "writer-pro");
+        assert_eq!(back.description, "写手");
+        assert_eq!(back.model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(back.color.as_deref(), Some("cyan"));
+        assert_eq!(back.tools, vec!["read_file", "propose_write"]);
+        assert_eq!(back.skills, vec!["writer-basics"]);
+        assert_eq!(back.max_turns, 10);
+        assert_eq!(back.body, "你是写手。
+第二行。");
+        // 非法色被拒（parse 时忽略）
+        let bad = parse_profile("---
+name: x
+color: chartreuse
+---
+体", "fb");
+        assert!(bad.color.is_none());
     }
 
     #[test]

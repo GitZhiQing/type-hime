@@ -76,10 +76,21 @@ pub struct FlowRequest {
 /// 出处：ZCode Agent 工具（description/prompt/subagent_type 三参形态）。
 pub type AgentSpawner = Arc<
     dyn Fn(AgentSpawnRequest, EventSink) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<String, String>> + Send>,
+            Box<dyn std::future::Future<Output = Result<AgentSpawnOutcome, String>> + Send>,
         > + Send
         + Sync,
 >;
+
+/// 子 Agent 执行结果（R9：结构化——摘要文本 + 用量，供事件与根 Agent 分别消费）。
+#[derive(Debug, Clone)]
+pub struct AgentSpawnOutcome {
+    /// 给根 Agent 的摘要（最终文本截断 + 用量/提议计数行）
+    pub summary: String,
+    pub tokens: u64,
+    pub duration_ms: u64,
+    /// 身份色（profile.color 透传进 SubTaskStart）
+    pub color: Option<String>,
+}
 
 /// spawn_agent 的执行请求（工具 → 业务层的端口类型）。
 #[derive(Debug, Clone)]
@@ -622,6 +633,7 @@ impl Tool for RunFlow {
             id: id.clone(),
             label: label.clone(),
             agent: None,
+            color: None,
         });
         let child = super::subtask::wrap_sink(sink, &id);
         let result = runner(
@@ -641,6 +653,8 @@ impl Tool for RunFlow {
             id: id.clone(),
             status: status.to_string(),
             summary: summary.clone(),
+            tokens: None,
+            duration_ms: None,
         });
         Ok(match status {
             "done" => format!("[子任务完成] {label}：{summary}"),
@@ -990,6 +1004,53 @@ pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
 }
 
 // ---------------------------------------------------------------------------
+// 工具元数据（R9：子 Agent 管理页「可用工具」多选数据源；与 build_tools 对齐）
+
+/// 工具元信息（管理页展示用短标签；description 是给模型的长文本，不在此列）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolMeta {
+    pub name: String,
+    pub label: String,
+    pub summary: String,
+}
+
+/// 可被填入子 Agent 白名单的工具全集（spawn_agent 递归硬禁 / run_flow 已退役，不入列）。
+pub const TOOL_WHITELIST: &[&str] = &[
+    "read_file",
+    "propose_edit",
+    "propose_write",
+    "bash",
+    "get_ledger",
+    "list_issues",
+    "list_lore",
+    "check_visibility_leak",
+    "preflight_chapter",
+    "record_issues",
+    "get_pipeline",
+];
+
+pub fn list_tool_meta() -> Vec<ToolMeta> {
+    let meta = |name: &str, label: &str, summary: &str| ToolMeta {
+        name: name.to_string(),
+        label: label.to_string(),
+        summary: summary.to_string(),
+    };
+    vec![
+        meta("read_file", "读取文件", "读取作品内任意文本文件"),
+        meta("propose_edit", "提议修改", "修改既有文件（走审阅）"),
+        meta("propose_write", "提议新建", "新建文件（走审阅）"),
+        meta("bash", "执行命令", "只读 git/管道命令（白名单，执行前确认）"),
+        meta("get_ledger", "查账本", "账本结构化视图"),
+        meta("list_issues", "查问题清单", "审校问题与裁决状态"),
+        meta("list_lore", "查设定", "可见设定条目（隐藏/未到卷不可见）"),
+        meta("check_visibility_leak", "泄漏检查", "零 token：可见条目是否复述隐藏设定"),
+        meta("preflight_chapter", "修为预检", "零 token：修为层级代码比对"),
+        meta("record_issues", "落盘问题清单", "把审校报告结构化落盘（进 git）"),
+        meta("get_pipeline", "查流水线", "六阶段状态与进入条件"),
+    ]
+}
+
+// ---------------------------------------------------------------------------
 // SpawnAgent：委派子 Agent（R8-③ · 多 Agent 团队）
 // 出处：ZCode Agent 工具（description 3-5 词 + prompt 任务全文 + subagent_type），
 // 刻意不给调用级 model 参数（防历史 override 污染当前配置——ZCode 同款取舍）。
@@ -1025,11 +1086,14 @@ impl Tool for SpawnAgent {
             return Ok("[委派不可用] 当前上下文没有子 Agent 调度通道（仅作品会话内的创作助手支持 spawn_agent）。".to_string());
         };
         let id = super::subtask::next_id();
-        let label = format!("{} · {}", args.subagent, args.description);
+        // R9：任务卡头部 = 色点 + agent 名 + 描述（label 只放描述，名字由 agent 字段承载）
+        let label = args.description.clone();
+        let color = super::profiles::get_profile(&args.subagent).and_then(|p| p.color);
         sink(AgentEvent::SubTaskStart {
             id: id.clone(),
             label: label.clone(),
             agent: Some(args.subagent.clone()),
+            color,
         });
         let child = super::subtask::wrap_sink(sink, &id);
         let result = spawner(
@@ -1041,18 +1105,21 @@ impl Tool for SpawnAgent {
             child,
         )
         .await;
-        let (status, summary) = match result {
-            Ok(s) => ("done", s),
-            Err(e) => ("error", e),
+        let (status, summary, tokens, duration_ms) = match result {
+            Ok(o) => ("done", o.summary, Some(o.tokens), Some(o.duration_ms)),
+            Err(e) => ("error", e, None, None),
         };
         sink(AgentEvent::SubTaskEnd {
             id: id.clone(),
             status: status.to_string(),
             summary: summary.clone(),
+            tokens,
+            duration_ms,
         });
+        let head = format!("{} · {}", args.subagent, args.description);
         Ok(match status {
-            "done" => format!("[子 Agent 完成] {label}\n{summary}"),
-            _ => format!("[子 Agent 失败] {label}：{summary}"),
+            "done" => format!("[子 Agent 完成] {head}\n{summary}"),
+            _ => format!("[子 Agent 失败] {head}：{summary}"),
         })
     }
 

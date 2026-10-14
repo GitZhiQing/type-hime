@@ -462,6 +462,24 @@ fn delete_agent(name: String) -> Result<(), String> {
     agent::profiles::delete_profile(&name).map(|_| ())
 }
 
+/// 读取结构化子 Agent 定义（R9 管理页表单视图）。
+#[tauri::command]
+fn get_agent_profile(name: String) -> Result<agent::profiles::AgentProfile, String> {
+    agent::profiles::get_profile(&name).ok_or_else(|| format!("子 Agent {name} 不存在"))
+}
+
+/// 结构化保存子 Agent（R9 管理页表单：校验 → format_profile → 落用户级）。
+#[tauri::command]
+fn save_agent_profile(profile: agent::profiles::AgentProfile) -> Result<(), String> {
+    agent::profiles::save_agent_profile(&profile).map(|_| ())
+}
+
+/// 子 Agent 可挂载的工具清单（R9 管理页「可用工具」多选数据源）。
+#[tauri::command]
+fn list_tools() -> Result<Vec<agent::tools::ToolMeta>, String> {
+    Ok(agent::tools::list_tool_meta())
+}
+
 #[tauri::command]
 async fn chat_stream(
     app: AppHandle,
@@ -810,6 +828,9 @@ pub fn run() {
             read_agent,
             write_agent,
             delete_agent,
+            get_agent_profile,
+            save_agent_profile,
+            list_tools,
             chat_stream,
             chat_stream_global,
             decide_approval,

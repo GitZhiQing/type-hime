@@ -384,34 +384,21 @@ pub fn agent_spawner(
     })
 }
 
-/// 全部已实现工具名（profile.tools 的白名单基集；spawn_agent 递归硬禁）。
-const TOOL_WHITELIST: &[&str] = &[
-    "read_file",
-    "propose_edit",
-    "propose_write",
-    "bash",
-    "get_ledger",
-    "list_issues",
-    "list_lore",
-    "check_visibility_leak",
-    "preflight_chapter",
-    "record_issues",
-    "get_pipeline",
-];
-
 /// 子 Agent 工具面解析：空 profile.tools = 通用集；显式列表 = 白名单；
 /// 永远剔除 spawn_agent（子 Agent 不可递归派生——ZCode 同款硬禁）。
 fn resolve_subagent_tools(profile: &agent::profiles::AgentProfile) -> Vec<String> {
+    let wl = agent::tools::TOOL_WHITELIST;
     let base: Vec<String> = if profile.tools.is_empty() {
-        TOOL_WHITELIST.iter().map(|s| s.to_string()).collect()
+        wl.iter().map(|s| s.to_string()).collect()
     } else {
         profile
             .tools
             .iter()
-            .filter(|t| TOOL_WHITELIST.contains(&t.as_str()))
+            .filter(|t| wl.contains(&t.as_str()))
             .cloned()
             .collect()
     };
+    // 递归硬禁：spawn_agent 永在子 Agent 工具面之外
     base.into_iter().filter(|t| t != "spawn_agent").collect()
 }
 
@@ -426,7 +413,7 @@ async fn run_subagent(
     req: &agent::tools::AgentSpawnRequest,
     sink: EventSink,
     on_proposal: ProposalSink,
-) -> Result<String, String> {
+) -> Result<agent::tools::AgentSpawnOutcome, String> {
     let profile = agent::profiles::load_profiles()
         .into_iter()
         .find(|p| p.name == req.subagent)
@@ -488,10 +475,15 @@ async fn run_subagent(
     } else {
         ""
     };
-    Ok(format!(
-        "子 Agent「{}」（{}）完成任务。耗时 {secs}s，用量 ≈{tokens} tokens，新提议 {queued} 件（已入审阅队列等作者接受）。\n\n最终汇报：\n{text}{truncated}",
-        profile.name, req.description
-    ))
+    Ok(agent::tools::AgentSpawnOutcome {
+        summary: format!(
+            "子 Agent「{}」（{}）完成任务。耗时 {secs}s，用量 ≈{tokens} tokens，新提议 {queued} 件（已入审阅队列等作者接受）。\n\n最终汇报：\n{text}{truncated}",
+            profile.name, req.description
+        ),
+        tokens,
+        duration_ms: started.elapsed().as_millis() as u64,
+        color: profile.color.clone(),
+    })
 }
 
 /// 子 Agent 公共约束（写死注入，profile 正文之外——ZCode Subagent Notes 同款）。

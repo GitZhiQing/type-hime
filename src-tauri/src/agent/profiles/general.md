@@ -1,6 +1,7 @@
 ---
 name: general
 description: 通用创作执行者——接受根 Agent 委派的任意创作/查阅/修改任务，基于此模板可自定义更多专职子 Agent
+color: blue
 max_turns: 12
 tools: read_file, propose_edit, propose_write, get_ledger, list_issues, list_lore, check_visibility_leak, preflight_chapter, record_issues, get_pipeline
 ---
