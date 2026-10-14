@@ -208,7 +208,7 @@ pub fn write_skill_file(work_dir: &Path, name: &str, content: &str) -> Result<()
     crate::works::write_file(work_dir, &format!("skills/{name}.md"), content)
 }
 
-/// 关键词路由（R4-④ · REDESIGN §8.2 实现从简）：prompt 命中技能名或任一关键词即挂载。
+/// 关键词路由（R4-④，实现从简）：prompt 命中技能名或任一关键词即挂载。
 pub fn route_skills(prompt: &str, work_dir: Option<&Path>) -> Vec<String> {
     list_skill_meta(work_dir)
         .into_iter()

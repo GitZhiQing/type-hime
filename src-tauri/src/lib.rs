@@ -291,7 +291,7 @@ fn context_overview(
 }
 
 // ---------------------------------------------------------------------------
-// 会话（通用对话 agent；作品会话 + 全局对话会话，REFACTOR R1）
+// 会话（通用对话 agent；作品会话 + 全局对话会话，R1）
 
 #[tauri::command]
 fn list_sessions(work_path: String) -> Result<Vec<session::SessionMeta>, String> {

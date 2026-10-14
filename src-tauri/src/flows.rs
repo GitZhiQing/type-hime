@@ -788,7 +788,7 @@ async fn goal_loop(
 
 // ---------------------------------------------------------------------------
 // run_flow 执行器（R4 Spike B）：chat 会话内的流程编排端口实现
-// 语义（REFACTOR R4）：必须触发既有 flows（保副作用闭环），触发前补 pipeline::gate_check。
+// 语义（R4）：必须触发既有 flows（保副作用闭环），触发前补 pipeline::gate_check。
 
 /// chat 上下文里的 run_flow 执行器：kind → 既有 flows。
 pub fn chat_flow_runner(
@@ -804,7 +804,7 @@ pub fn chat_flow_runner(
     })
 }
 
-/// slash 指令化（R4-⑥ · REDESIGN §5.3；R8-④ 委派化）：`/命令 参数` → 结构化指令块。
+/// slash 指令化（R4-⑥；R8-④ 委派化）：`/命令 参数` → 结构化指令块。
 /// R8 起写作/审校命令是**委派模板**：指引根 Agent 装配上下文并 spawn_agent 委派子 Agent
 /// （原 run_flow 直调退役）；检查类命令仍是直连工具。返回 None 表示不是已知 slash 命令。
 pub fn slash_instruction(prompt: &str) -> Option<String> {

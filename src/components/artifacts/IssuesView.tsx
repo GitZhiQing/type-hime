@@ -6,7 +6,7 @@ import { Check, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 
 /**
- * 问题清单制品（R5-② · REDESIGN §5.5）：issues.json 结构化渲染，
+ * 问题清单制品（R5-②）：issues.json 结构化渲染，
  * 裁决按钮从 GeneratePane 迁入（fixed/dismissed 是保留的人工入口）。
  */
 

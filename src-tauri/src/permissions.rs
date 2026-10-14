@@ -1,5 +1,5 @@
 //! 权限模型（R4 · D30）：两档 × per-tool/per-action 覆盖矩阵。
-//! 来源（REFACTOR A1）：goose smart_approve per-tool 覆盖、Cursor per-tool auto-approval、
+//! 来源（D30）：goose smart_approve per-tool 覆盖、Cursor per-tool auto-approval、
 //! ZCode 会话级模式 + 工具权限块门控（会话内决定档位、工具执行前 resolve）。
 //!
 //! 档位在会话中决定（存会话档案，前端输入框左下角下拉切换）；

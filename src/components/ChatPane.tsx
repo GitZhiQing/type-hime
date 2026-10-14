@@ -69,7 +69,7 @@ interface ChatProps {
   /** 标题栏首/末端插槽（D55：两侧面板收起/展开按钮由父层注入） */
   barStart?: ReactNode;
   barEnd?: ReactNode;
-  /** 输入框上方的插槽（work 作用域放 PLAN 条；REDESIGN §5.4） */
+  /** 输入框上方的插槽（work 作用域放 PLAN 条） */
   planSlot?: ReactNode;
 }
 

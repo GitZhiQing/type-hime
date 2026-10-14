@@ -1,7 +1,7 @@
 /**
  * slash 命令定义（`/` 补全菜单数据源）。
  *
- * R4-⑥（REDESIGN §5.3）：slash 已是**发给 Agent 的结构化指令**——前端只负责补全与展示，
+ * R4-⑥：slash 已是**发给 Agent 的结构化指令**——前端只负责补全与展示，
  * 不再直调命令；后端 chat_flow 解析 `/命令 参数` 生成结构化指令块（驱动 Agent 走
  * run_flow / 直连检查工具），Agent 可汇报阶段门与后续建议。原 dispatch 表（runSlash）已退役。
  */

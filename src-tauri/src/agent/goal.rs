@@ -1,4 +1,4 @@
-//! 长时目标（R4.5 · D31 · REFACTOR §6.5）：目标完成验证器与迭代推进的纯逻辑层。
+//! 长时目标（R4.5 · D31）：目标完成验证器与迭代推进的纯逻辑层。
 //!
 //! 提示词与 JSON 解析移植自 ZCode（apps/zcode-cli/packages/contracts/src/tools/
 //! target.ts，goal completion verifier），适配三点：

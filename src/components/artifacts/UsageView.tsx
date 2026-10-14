@@ -3,7 +3,7 @@ import { api } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Wallet } from "lucide-react";
 
-/** 成本制品（R5-② · REDESIGN §5.5）：get_usage_summary 真实用量（provider 计数）只读。 */
+/** 成本制品（R5-②）：get_usage_summary 真实用量（provider 计数）只读。 */
 
 function fmt(n: number): string {
   return n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : n.toLocaleString();

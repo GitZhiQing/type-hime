@@ -107,7 +107,7 @@ pub struct AgentSpawnRequest {
 }
 
 /// flow 执行器：由业务层注入（chat_flow 提供），返回执行摘要。
-/// 出处（REFACTOR A/R4）：run_flow 必须触发既有 flows 而非让 Agent 手工模拟，
+/// 出处（R4）：run_flow 必须触发既有 flows 而非让 Agent 手工模拟，
 /// 保住 issues.json 落盘、preflight 注入、装配注入等副作用闭环。
 /// R8-③：chat 工具面退役 run_flow（改由 spawn_agent 委派），此端口保留供 flows 层与示例使用。
 pub type FlowRunner = Arc<

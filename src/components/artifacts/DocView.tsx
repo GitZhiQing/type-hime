@@ -5,9 +5,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { BookOpen } from "lucide-react";
 
 /**
- * 文稿制品（R5-① · REDESIGN §5.5）：资源树侧栏 + 编辑器。
- * 资源树从 Workbench 左栏移入此处；删除/恢复随树驻留（留人操作，§11 保留清单）。
- * 新建设定/新建文件无按钮入口（§11「其余一切经聊天」：自然语言或 propose_write 建条目，
+ * 文稿制品（R5-①）：资源树侧栏 + 编辑器。
+ * 资源树从 Workbench 左栏移入此处；删除/恢复随树驻留（留人操作）。
+ * 新建设定/新建文件无按钮入口（「其余一切经聊天」：自然语言或 propose_write 建条目，
  * 可见性控件在编辑器保留）。
  */
 

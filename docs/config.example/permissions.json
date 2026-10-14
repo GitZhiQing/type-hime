@@ -1,9 +1,0 @@
-{
-  "$comment": "type-hime bash 白名单示例（字段说明见本目录 README.md）。复制到 %APPDATA%/type-hime/permissions.json（全局）或 <作品目录>/permissions.json（作品级）后生效；两层叠加。",
-  "allow_commands": [
-    "rg"
-  ],
-  "deny_patterns": [],
-  "git_readonly": [],
-  "pipe_filters": []
-}

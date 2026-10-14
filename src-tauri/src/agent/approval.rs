@@ -1,5 +1,5 @@
 //! 会话内审批（R4 Spike A）：工具执行前挂起等 UI 决策。
-//! 形态来源（REFACTOR §1 采纳 A2）：goose 会话窗口 Allow/Deny 卡片、ZCode 工具权限块审批流；
+//! 形态来源（D33）：goose 会话窗口 Allow/Deny 卡片、ZCode 工具权限块审批流；
 //! 挂起机制：rig `Tool::call` 返回 Future，工具内 await oneshot 即可长期等待（已读源码确认）。
 
 use std::collections::HashMap;

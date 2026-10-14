@@ -58,7 +58,7 @@ pub const CHAT_SPEC_SECTIONS: &str = r#"你是码字姬——中文网文长篇�
 中文回答，直接给观点和方案，不说套话。"#;
 
 /// 通用对话 Agent（旁路会话）：中栏会话流使用；产物经提议审阅回流。
-/// 默认挂 writer-basics（REDESIGN §8.2：chat 默认技能），其余技能动态挂载（R4-④）。
+/// 默认挂 writer-basics（chat 默认技能），其余技能动态挂载（R4-④）。
 /// R8-③：工具面去 run_flow（改由 spawn_agent 委派子 Agent），加 spawn_agent / git_commit /
 /// get_pipeline / record_issues；团队清单由 flows 层运行时注入（section "team"）。
 pub fn chat_spec() -> AgentSpec {
@@ -99,7 +99,7 @@ pub fn chat_spec_with_skills(extra: &[String]) -> AgentSpec {
     spec
 }
 
-/// slash 强制技能映射（R4-④：slash 指定技能 = 强制挂载该技能；REDESIGN §8.2）。
+/// slash 强制技能映射（R4-④：slash 指定技能 = 强制挂载该技能）。
 pub fn slash_forced_skill(prompt: &str) -> Option<&'static str> {
     let head = prompt.trim_start();
     if !head.starts_with('/') {

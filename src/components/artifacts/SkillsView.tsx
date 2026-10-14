@@ -8,7 +8,7 @@ import { Loader2, Save, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 
 /**
- * 技能文档制品（R5-② · REDESIGN §5.5）：内置/作品级技能查看与编辑。
+ * 技能文档制品（R5-②）：内置/作品级技能查看与编辑。
  * 保存走人类直写通道（works::write_file → 作品级 skills/<name>.md 同名覆盖内置层，git 留痕）。
  */
 

@@ -28,7 +28,7 @@ import type { PanelImperativeHandle } from "react-resizable-panels";
 import { toast } from "sonner";
 
 /**
- * 项目页（R5-① 起三栏 = 会话列表 | 聊天 | 制品面板；REDESIGN §5.2）。
+ * 项目页（R5-① 起三栏 = 会话列表 | 聊天 | 制品面板）。
  * 左栏资源树/git 历史已移入制品面板（文稿标签侧栏 / git 标签）。
  */
 

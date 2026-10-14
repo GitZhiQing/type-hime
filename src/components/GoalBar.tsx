@@ -20,7 +20,7 @@ import {
 import { toast } from "sonner";
 
 /**
- * 长时目标横幅（R4.5-④ · REDESIGN §8.6）：PLAN 条上方的会话目标进度条。
+ * 长时目标横幅（R4.5-④ · D31）：PLAN 条上方的会话目标进度条。
  * 折叠 = 目标摘要 + 状态 + 轮次/用量；展开 = 迭代行（标题=上一轮 nextAction）+ 验证结论。
  * 动作：暂停/清除直调命令；继续经 window "goal:resume" 由 ChatPane 以聊天流驱动
  * （续跑需要 SSE 通道，/goal 恢复 在后端翻状态后直接跑恢复轮）。

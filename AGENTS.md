@@ -1,6 +1,6 @@
 # AGENTS.md
 
-会话级上下文。只在 Agent 犯重复错误时追加纠正，保持 <100 行。
+供 AI Agent 阅读的会话级上下文（人类用户请读 [README.md](README.md)）。只在 Agent 犯重复错误时追加纠正，保持 <100 行。
 
 ## 命令（全部真实执行过）
 
@@ -25,7 +25,7 @@ cargo run --example webapi                         # Web 测试通道（127.0.0.
 ## 目录速览
 
 ```
-docs/            SPEC.md（范围契约）+ DECISIONS.md（选型账）+ REDESIGN.md（重设计·已确认）+ REFACTOR.md（重构执行：R1-R17 已完成，R18-R20/R6 待排，R7 后置）
+docs/            SPEC.md（范围契约）+ DECISIONS.md（选型账与决策日志，重构/选型前必读）——全库仅此两篇文档（D63）
 src/             前端（React + TS + Tailwind v4 + shadcn/ui，base-ui 基座）
   components/ui/      shadcn 组件（CLI 生成）
   components/ai/      AI 界面组件（Message/Conversation/ToolCallCard 折叠卡/Response/任务行=子 Agent 卡/委派会话视图/会话历史渲染/代码高亮/提议卡/审批卡/输入框补全）
@@ -69,8 +69,8 @@ examples/        chat_smoke / full_flow / mvp_flow / write_book / regression / g
 - 单测中的临时目录要按测试名区分后缀，避免并行测试竞态（曾犯）。
 - cargo check 警告保持 0（cargo fix --lib 可自动清）。
 - 开发纪律：一片一提交（中文提交信息），切片验收通过才进下一片；先 cargo check/test 绿再动前端。
-- 文档纪律：产物按现状书写，演进过程交给提交说明与 DECISIONS.md。
-- 重构进行中（docs/REFACTOR.md；R1-R17 已完成——R4.5/R5/R8 见 D34-D37、R9 见 D39、R14-R17 见 D41/D44/D45/D46；D47-D55 为用户反馈 UI 批次：装配标签退役、子任务行持久化+子会话标签页、标题栏与面板收起等）：新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）；剩 R6 收缩版（regression 扩展+文档对齐）+ R18-R20。实施中的选型演化以 DECISIONS D26 起条目为准。
+- 文档纪律：产物按现状书写，演进过程交给提交说明与 DECISIONS.md；受众分工——本文件给 Agent 读、README.md 给人类读、docs/ 仅 SPEC+DECISIONS 两篇（D63）。
+- 新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）；选型演化以 DECISIONS 条目为准（D26 起）。待排（原 REFACTOR 路线图剩余，见 D63）：R6 收缩版（regression 扩展）、R18 确认降噪、R19 过程可见（排序见 D43）、R20 模型配置（形态见 D42）。
 - 多 Agent（R8）：子 Agent 定义=app data/agents/*.md（md+frontmatter，正文=prompt；内置 general 可覆盖不可删）；spawn_agent 递归硬禁（子 Agent 工具面永远剔除）；子 Agent 落稿同样走 propose_*（红线不因多 Agent 放松）；子会话档案 agent-<名>-<st-id>（含 st-id 防并行覆盖）。
 - Tailwind v4 不扫描 node_modules：第三方组件（e.g. streamdown）的效用类不会生成 CSS——用 @source 显式纳入或写作用域 CSS（曾致复制按钮 pointer-events 失效、物理不可点；同类：streamdown shiki token 只给 --sdm-c/--shiki-dark 变量、应用规则缺，已在 index.css 补——第三方组件样式缺失先查此坑家族）。
 - UI 文案不带装饰性「」『』（用户规则 D59）：强调交给组件样式（strong/Badge/等宽 code），指代 UI 元素直接写名称，标识符用 code；括号只留给内容本身的真实引用。

@@ -6,7 +6,7 @@ import { cn } from "cn";
 import { ChevronLeft, GitBranch, Loader2 } from "lucide-react";
 
 /**
- * git 历史制品（R5-② · REDESIGN §5.5）：提交列表 + 单提交 diff（git_show，R5-② 新命令）。
+ * git 历史制品（R5-②）：提交列表 + 单提交 diff（git_show 新命令）。
  */
 
 export function GitView({ workPath }: { workPath: string }) {

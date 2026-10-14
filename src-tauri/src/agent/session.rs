@@ -1,6 +1,6 @@
 //! 会话管理：会话历史持久化（D4）。
 //! 作品会话存作品目录 .sessions/（gitignore）；全局对话会话存 app config 目录
-//! global-sessions/（无作品上下文，REDESIGN §5.1）。历史以 rig Message 原生 serde
+//! global-sessions/（无作品上下文）。历史以 rig Message 原生 serde
 //! 存 JSON；提供前端展示视图。旧档兼容：title 缺失时回退首条用户消息截断。
 
 use std::path::PathBuf;
