@@ -1,36 +1,67 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, AgentMeta } from "@/lib/tauri";
+import { api, AgentMeta, AgentProfile, ToolMeta } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Bot, Loader2, Plus, Save, Trash2 } from "lucide-react";
-import { MessageResponse } from "@/components/ai/response";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "cn";
 import { toast } from "sonner";
+import {
+  AGENT_COLOR_KEYS,
+  AGENT_DOT,
+  resolveAgentColor,
+} from "@/lib/agent-colors";
 
 /**
- * 子 Agent 管理页（R8-②/⑤ · 多 Agent 团队）：
- * master-detail（仿技能文档）——左侧团队清单（内置/自定义），右侧编辑。
- * 定义 = md + frontmatter（name/description/model/tools/skills/max_turns），正文即系统提示词。
- * 保存落用户级（app data/agents/*.md，跨作品共享）；内置 general 可覆盖但不可删。
+ * 子 Agent 管理页（R8-②/⑤，R9 结构化表单 · ZCode 子智能体配置同构）：
+ * 左侧团队清单（色点+内置徽标），右侧卡片表单——
+ * 名称 / 颜色标记 / 模型（继承默认或自定义）/ 描述 / 可用工具（多选，全选=默认全部）/ 系统提示词；
+ * 「源码」切换保留 md 直接编辑（高级）。存储仍为 md+frontmatter（单一格式源在后端 format_profile）。
  */
 
-const NEW_AGENT_TEMPLATE = (name: string) =>
-  `---\nname: ${name}\ndescription: 一句话说明何时委派这个子 Agent\nmax_turns: 12\n---\n\n你是 type-hime 的子 Agent（${name}）。\n\n职责：\n- （描述这个子 Agent 做什么、遵循什么规程）\n\n要求：\n- 一切作品文件修改走 propose_edit / propose_write 提议；\n- 结论与清单写在最终回复里（根 Agent 只读你的文本）。\n`;
+const DEFAULT_BODY =
+  "你是 type-hime 的子 Agent。\n\n职责：\n- （描述这个子 Agent 做什么、遵循什么规程）\n\n要求：\n- 一切作品文件修改走 propose_edit / propose_write 提议；\n- 结论与清单写在最终回复里（根 Agent 只读你的文本）。";
+
+function emptyProfile(): AgentProfile {
+  return {
+    name: "",
+    description: "",
+    model: null,
+    color: null,
+    tools: [],
+    skills: [],
+    max_turns: 12,
+    body: DEFAULT_BODY,
+  };
+}
 
 export function Agents() {
   const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentMeta[] | null>(null);
   const [active, setActive] = useState<string | null>(null);
-  const [content, setContent] = useState("");
-  const [saved, setSaved] = useState("");
-  const [source, setSource] = useState<"builtin" | "user">("builtin");
+  const [toolMeta, setToolMeta] = useState<ToolMeta[]>([]);
+  const [view, setView] = useState<"form" | "source">("form");
+  const [isNew, setIsNew] = useState(false);
+
+  // 表单态（结构化）
+  const [form, setForm] = useState<AgentProfile | null>(null);
+  const [formSource, setFormSource] = useState<"builtin" | "user">("builtin");
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [customModel, setCustomModel] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [preview, setPreview] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
-  const [newName, setNewName] = useState("");
+
+  // 源码态
+  const [srcContent, setSrcContent] = useState("");
+  const [srcSaved, setSrcSaved] = useState("");
 
   const reloadList = useCallback(async () => {
     try {
@@ -46,33 +77,82 @@ export function Agents() {
 
   useEffect(() => {
     reloadList().then((list) => {
-      if (list.length > 0 && !active) setActive(list[0].name);
+      if (list.length > 0) setActive((cur) => cur ?? list[0].name);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    api.listTools().then(setToolMeta).catch(() => {});
   }, [reloadList]);
 
+  // 选中项 → 读结构化表单 + 源码原文
   useEffect(() => {
-    if (!active) return;
-    setPreview(false);
-    api
-      .readAgent(active)
-      .then((raw) => {
-        setContent(raw.content);
-        setSaved(raw.content);
-        setSource(raw.source);
+    if (!active || isNew) return;
+    setView("form");
+    setToolsOpen(false);
+    Promise.all([api.getAgentProfile(active), api.readAgent(active)])
+      .then(([p, raw]) => {
+        setForm(p);
+        setFormSource(raw.source);
+        setCustomModel(!!p.model);
+        setSrcContent(raw.content);
+        setSrcSaved(raw.content);
       })
       .catch((e) => toast.error(String(e)));
-  }, [active]);
+  }, [active, isNew]);
 
-  async function save() {
-    if (!active || saving || content === saved) return;
+  function startNew() {
+    setIsNew(true);
+    setActive(null);
+    setView("form");
+    setToolsOpen(false);
+    setCustomModel(false);
+    setForm(emptyProfile());
+  }
+
+  function cancelForm() {
+    if (isNew) {
+      setIsNew(false);
+      setForm(null);
+      reloadList().then((list) => {
+        if (list.length > 0) setActive(list[0].name);
+      });
+      return;
+    }
+    // 回滚到初始值
+    if (active) {
+      api.getAgentProfile(active).then((p) => {
+        setForm(p);
+        setCustomModel(!!p.model);
+      });
+    }
+  }
+
+  async function saveForm() {
+    if (!form || saving) return;
     setSaving(true);
     try {
-      await api.writeAgent(active, content);
-      setSaved(content);
-      setSource("user");
+      await api.saveAgentProfile({ ...form, name: form.name.trim() });
+      toast.success(
+        isNew
+          ? `已创建子 Agent ${form.name}（用户级定义，跨作品共享）`
+          : `已保存 ${form.name}（根 Agent 下次委派即用新配置）`,
+      );
+      setIsNew(false);
       await reloadList();
-      toast.success(`已保存 ${active}（用户级定义，跨作品生效；根 Agent 下次委派即用新提示词）`);
+      setActive(form.name.trim());
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveSource() {
+    if (!active || srcContent === srcSaved) return;
+    setSaving(true);
+    try {
+      await api.writeAgent(active, srcContent);
+      setSrcSaved(srcContent);
+      await reloadList();
+      toast.success(`已保存源码（${active}.md）`);
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -84,7 +164,8 @@ export function Agents() {
     try {
       await api.deleteAgent(name);
       toast.success(`已删除用户级定义 ${name}`);
-      if (active === name) setActive(null);
+      setActive(null);
+      setForm(null);
       const list = await reloadList();
       if (list.length > 0) setActive(list[0].name);
     } catch (e) {
@@ -92,22 +173,24 @@ export function Agents() {
     }
   }
 
-  async function create() {
-    const name = newName.trim();
-    if (!name) return;
-    try {
-      await api.writeAgent(name, NEW_AGENT_TEMPLATE(name));
-      setNewOpen(false);
-      setNewName("");
-      await reloadList();
-      setActive(name);
-      toast.success(`已创建子 Agent ${name}（基于通用模板）`);
-    } catch (e) {
-      toast.error(String(e));
-    }
+  /** 勾选集合（全选归一化为空 = 默认全部工具） */
+  const checkedTools = form
+    ? form.tools.length === 0
+      ? toolMeta.map((t) => t.name)
+      : form.tools
+    : [];
+
+  function toggleTool(name: string) {
+    if (!form) return;
+    const cur = new Set(checkedTools);
+    if (cur.has(name)) cur.delete(name);
+    else cur.add(name);
+    const all = toolMeta.map((t) => t.name);
+    const next = all.every((n) => cur.has(n)) ? [] : all.filter((n) => cur.has(n));
+    setForm({ ...form, tools: next });
   }
 
-  const dirty = content !== saved;
+  const formDirty = !!form && form.name.trim() !== "" && !saving;
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -117,7 +200,7 @@ export function Agents() {
           返回
         </Button>
         <Bot className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold">Agents · 子 Agent 团队</span>
+        <span className="text-sm font-semibold">子 Agent 团队</span>
         <span className="text-xs text-muted-foreground">
           根 Agent 通过 spawn_agent 委派它们干活；定义存用户级，跨作品共享
         </span>
@@ -125,7 +208,7 @@ export function Agents() {
           variant="outline"
           size="sm"
           className="ml-auto h-8 px-2 text-xs"
-          onClick={() => setNewOpen(true)}
+          onClick={startNew}
         >
           <Plus data-icon="inline-start" />
           新建子 Agent
@@ -147,11 +230,20 @@ export function Agents() {
                   type="button"
                   className={cn(
                     "mb-0.5 w-full rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent",
-                    active === a.name && "bg-accent",
+                    active === a.name && !isNew && "bg-accent",
                   )}
-                  onClick={() => setActive(a.name)}
+                  onClick={() => {
+                    setIsNew(false);
+                    setActive(a.name);
+                  }}
                 >
                   <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "size-2 shrink-0 rounded-full",
+                        AGENT_DOT[resolveAgentColor(a.name, a.color)],
+                      )}
+                    />
                     <span className="truncate font-medium">{a.name}</span>
                     {a.source === "builtin" && (
                       <Badge variant="secondary" className="shrink-0 text-[10px]">
@@ -159,7 +251,7 @@ export function Agents() {
                       </Badge>
                     )}
                   </div>
-                  <div className="truncate text-[10px] text-muted-foreground" title={a.description}>
+                  <div className="truncate pl-3.5 text-[10px] text-muted-foreground" title={a.description}>
                     {a.description}
                   </div>
                 </button>
@@ -168,49 +260,40 @@ export function Agents() {
           </div>
         </aside>
 
-        {/* 编辑区 */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {active ? (
-            <>
-              <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs text-muted-foreground">
-                <span className="truncate font-mono text-foreground/80">{active}.md</span>
-                {source === "user" && (
-                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+        {/* 右区：表单 / 源码 */}
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          {form ? (
+            <div className="mx-auto max-w-2xl p-6">
+              {/* 卡片头：标题 + 视图切换 */}
+              <div className="mb-1 flex items-center gap-2">
+                <h2 className="text-base font-semibold">
+                  {isNew ? "新建子 Agent" : `编辑 ${form.name}`}
+                </h2>
+                {!isNew && formSource === "user" && (
+                  <Badge variant="secondary" className="text-[10px]">
                     用户级定义
                   </Badge>
                 )}
-                {source === "builtin" && (
-                  <span className="text-[10px]">内置 · 保存即创建用户级覆盖</span>
+                {!isNew && formSource === "builtin" && (
+                  <span className="text-[10px] text-muted-foreground">
+                    内置 · 保存即创建用户级覆盖
+                  </span>
                 )}
-                <span className="ml-auto flex items-center gap-1">
+                <span className="ml-auto flex gap-1">
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-xs"
-                    disabled={!dirty || saving}
-                    onClick={save}
+                    onClick={() => setView(view === "form" ? "source" : "form")}
                   >
-                    {saving ? (
-                      <Loader2 data-icon="inline-start" className="animate-spin" />
-                    ) : (
-                      <Save data-icon="inline-start" />
-                    )}
-                    保存
+                    {view === "form" ? "源码" : "表单"}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-muted-foreground"
-                    onClick={() => setPreview((p) => !p)}
-                  >
-                    {preview ? "编辑" : "预览"}
-                  </Button>
-                  {source === "user" && (
+                  {!isNew && formSource === "user" && (
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs text-destructive"
-                      onClick={() => remove(active)}
+                      onClick={() => remove(form.name)}
                     >
                       <Trash2 data-icon="inline-start" />
                       删除
@@ -218,50 +301,213 @@ export function Agents() {
                   )}
                 </span>
               </div>
-              {preview ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <div className="mx-auto max-w-3xl px-6 py-4">
-                    <MessageResponse className="text-[13px]">{content}</MessageResponse>
+              <p className="mb-4 text-xs text-muted-foreground">
+                {view === "form"
+                  ? "填写名称、工具与系统提示词；保存后返回列表。"
+                  : "直接编辑 md 源码（frontmatter + 正文=系统提示词）；保存后与表单视图共享同一文件。"}
+              </p>
+
+              {view === "form" ? (
+                <div className="rounded-lg border p-4">
+                  {/* 行 1：名称 / 颜色标记 / 模型 */}
+                  <div className="grid grid-cols-[1fr_auto_1fr] gap-4">
+                    <label className="block">
+                      <span className="mb-1.5 block text-sm">名称</span>
+                      <Input
+                        value={form.name}
+                        onChange={(e) =>
+                          setForm({ ...form, name: e.currentTarget.value.replace(/[^a-zA-Z0-9_-]/g, "") })
+                        }
+                        placeholder="writer / editor / general"
+                        readOnly={!isNew}
+                        className={cn("font-mono", !isNew && "bg-muted/40")}
+                      />
+                      {!isNew && (
+                        <span className="mt-1 block text-[10px] text-muted-foreground">
+                          名称即文件名，创建后不可改（改用新建）
+                        </span>
+                      )}
+                    </label>
+                    <div>
+                      <span className="mb-1.5 block text-sm">颜色标记</span>
+                      <div className="flex items-center gap-1.5 rounded-md border px-2 py-1.5">
+                        {AGENT_COLOR_KEYS.map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            aria-label={`颜色 ${k}`}
+                            className={cn(
+                              "size-4 rounded-full transition-transform",
+                              AGENT_DOT[k],
+                              form.color === k
+                                ? "ring-2 ring-foreground/60 ring-offset-1"
+                                : "hover:scale-110",
+                            )}
+                            onClick={() => setForm({ ...form, color: form.color === k ? null : k })}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <label className="block">
+                      <span className="mb-1.5 block text-sm">模型</span>
+                      <Select
+                        items={{
+                          __default__: "继承默认",
+                          ...(form.model ? { [form.model]: form.model } : {}),
+                          __custom__: "自定义…",
+                        }}
+                        value={form.model || "__default__"}
+                        onValueChange={(v) => {
+                          if (!v) return;
+                          if (v === "__default__") {
+                            setCustomModel(false);
+                            setForm({ ...form, model: null });
+                          } else if (v === "__custom__") {
+                            setCustomModel(true);
+                            setForm({ ...form, model: "" });
+                          } else {
+                            setCustomModel(false);
+                            setForm({ ...form, model: v });
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default__">继承默认</SelectItem>
+                          {form.model && <SelectItem value={form.model}>{form.model}</SelectItem>}
+                          <SelectItem value="__custom__">自定义…</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {customModel && (
+                        <Input
+                          value={form.model ?? ""}
+                          onChange={(e) => setForm({ ...form, model: e.currentTarget.value })}
+                          placeholder="模型 id（如 deepseek-chat）"
+                          className="mt-1.5 font-mono text-xs"
+                        />
+                      )}
+                    </label>
+                  </div>
+
+                  {/* 描述 */}
+                  <label className="mt-4 block">
+                    <span className="mb-1.5 block text-sm">描述</span>
+                    <Input
+                      value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.currentTarget.value })}
+                      placeholder="展示给根 Agent 的简短说明（决定何时委派它）"
+                    />
+                  </label>
+
+                  {/* 可用工具（折叠面板多选；全选=默认全部） */}
+                  <div className="mt-4">
+                    <span className="mb-1.5 block text-sm">可用工具</span>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50"
+                      onClick={() => setToolsOpen((o) => !o)}
+                      aria-expanded={toolsOpen}
+                    >
+                      {toolsOpen ? (
+                        <ChevronDown className="size-3.5 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="size-3.5 text-muted-foreground" />
+                      )}
+                      {form.tools.length === 0
+                        ? "默认（全部工具）"
+                        : `已选 ${form.tools.length} / ${toolMeta.length} 项`}
+                      <span className="ml-auto text-[11px] text-muted-foreground">
+                        控制该子 Agent 可以调用的工具范围；全选即默认全部
+                      </span>
+                    </button>
+                    {toolsOpen && (
+                      <ul className="mt-1 divide-y rounded-md border">
+                        {toolMeta.map((t) => {
+                          const on = checkedTools.includes(t.name);
+                          return (
+                            <li key={t.name}>
+                              <label className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 transition-colors hover:bg-accent/40">
+                                <input type="checkbox" checked={on} onChange={() => toggleTool(t.name)} />
+                                <span className="w-20 shrink-0 text-xs font-medium">{t.label}</span>
+                                <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                                  {t.summary}
+                                </span>
+                                <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+                                  {t.name}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* 系统提示词 */}
+                  <label className="mt-4 block">
+                    <span className="mb-1.5 block text-sm">系统提示词</span>
+                    <Textarea
+                      value={form.body}
+                      onChange={(e) => setForm({ ...form, body: e.currentTarget.value })}
+                      placeholder="描述这个子 Agent 的角色、边界和规则…"
+                      className="min-h-44 font-mono text-[12px] leading-relaxed"
+                    />
+                  </label>
+
+                  {/* footer */}
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button variant="ghost" size="sm" onClick={cancelForm} disabled={saving}>
+                      取消
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={saveForm}
+                      disabled={!formDirty || !form.description.trim() || !form.body.trim()}
+                    >
+                      {saving ? (
+                        <Loader2 data-icon="inline-start" className="animate-spin" />
+                      ) : (
+                        <Save data-icon="inline-start" />
+                      )}
+                      {isNew ? "创建" : "保存"}
+                    </Button>
                   </div>
                 </div>
               ) : (
-                <Textarea
-                  value={content}
-                  onChange={(e) => setContent(e.currentTarget.value)}
-                  spellCheck={false}
-                  className="min-h-0 flex-1 resize-none rounded-none border-0 font-mono text-[12px] leading-relaxed focus-visible:ring-0"
-                />
+                <div className="rounded-lg border">
+                  <div className="flex h-9 items-center gap-2 border-b px-3 text-xs text-muted-foreground">
+                    <span className="font-mono text-foreground/80">{form.name}.md</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto h-7 px-2 text-xs"
+                      disabled={srcContent === srcSaved || saving}
+                      onClick={saveSource}
+                    >
+                      保存源码
+                    </Button>
+                  </div>
+                  <Textarea
+                    value={srcContent}
+                    onChange={(e) => setSrcContent(e.currentTarget.value)}
+                    spellCheck={false}
+                    className="min-h-80 resize-y rounded-none border-0 font-mono text-[12px] leading-relaxed focus-visible:ring-0"
+                  />
+                  <div className="border-t px-3 py-2 text-[10px] text-muted-foreground">
+                    提示：表单保存会用 format 归一化 frontmatter；此处手写容忍逗号串等宽松格式。
+                  </div>
+                </div>
               )}
-            </>
+            </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-              左侧选择子 Agent 查看/编辑，或右上角新建
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              左侧选择子 Agent，或右上角新建
             </div>
           )}
         </div>
       </div>
-
-      {/* 新建（轻量内联条，避免 Dialog 阻塞） */}
-      {newOpen && (
-        <div className="absolute inset-x-0 top-12 z-10 mx-auto flex w-[420px] items-center gap-2 rounded-b-lg border border-t-0 bg-popover p-3 shadow-md">
-          <Input
-            value={newName}
-            onChange={(e) => setNewName(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") create();
-              if (e.key === "Escape") setNewOpen(false);
-            }}
-            placeholder="子 Agent 名（字母/数字/-/_，如 writer、editor）"
-            autoFocus
-          />
-          <Button size="sm" onClick={create} disabled={!newName.trim()}>
-            创建
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setNewOpen(false)}>
-            取消
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
