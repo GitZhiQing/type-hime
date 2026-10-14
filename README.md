@@ -2,7 +2,12 @@
   <img src="src-tauri/icons/128x128@2x.png" width="112" alt="码字姬 应用图标" />
 </p>
 
-<h1 align="center">码字姬</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
+    <img alt="码字姬" src="assets/wordmark-light.svg" height="40">
+  </picture>
+</h1>
 
 <p align="center">
   <code>type-hime</code> · 本地优先的中文网文 AI 写作工作台<br/>
