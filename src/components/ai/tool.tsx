@@ -28,6 +28,8 @@ export interface ToolCallData {
   /** null = 尚无结果（运行中） */
   result: string | null;
   isError?: boolean;
+  /** rig call id（R8-③：并行同名工具精确配对；旧数据无此字段） */
+  callId?: string | null;
 }
 
 const TOOL_LABELS: Record<string, string> = {

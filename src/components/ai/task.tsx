@@ -5,14 +5,16 @@ import { cn } from "cn";
 
 /**
  * 子任务卡（R4：run_flow 触发长流程期间的过程展示；AI Elements Task 同构）。
+ * R8-③ 起兼作子 Agent 运行卡：`agent` 字段标注委派来源（名称 + 身份色）。
  * 事件源：SubTaskStart/Delta/ToolCall/ToolResult/End（agent/subtask.rs 桥接）。
- * 交互（R4-⑤）：运行中默认展开看流式过程；完成后自动收起为一行摘要，可再展开回看轨迹。
  */
 
 export interface SubTaskToolCall {
   name: string;
   args: string;
   result: string | null;
+  /** rig call id（R8-③：并行子 Agent 同名工具的精确配对；旧数据无 id 按名回退） */
+  callId?: string | null;
 }
 
 export interface TaskView {
@@ -21,9 +23,30 @@ export interface TaskView {
   status: "running" | "done" | "error";
   /** 子流程文本增量累积 */
   text: string;
-  /** 子流程内工具轨迹（call/result 按名配对） */
+  /** 子流程内工具轨迹（call/result 配对：call_id 优先，回退按名） */
   toolCalls: SubTaskToolCall[];
   summary: string | null;
+  /** 子 Agent 名（spawn_agent 委派时；None=普通子任务） */
+  agent?: string | null;
+}
+
+/** 身份色（R8-⑤：ZCode subagentColors 同款——8 色板，未声明者按名称 hash 取色）。 */
+const AGENT_COLORS = [
+  "text-sky-600",
+  "text-violet-600",
+  "text-emerald-600",
+  "text-amber-600",
+  "text-rose-600",
+  "text-cyan-600",
+  "text-fuchsia-600",
+  "text-lime-600",
+];
+
+export function agentColor(name: string | null | undefined): string {
+  if (!name) return "text-muted-foreground";
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return AGENT_COLORS[h % AGENT_COLORS.length];
 }
 
 export function TaskCard({ task }: { task: TaskView }) {
@@ -44,6 +67,7 @@ export function TaskCard({ task }: { task: TaskView }) {
     );
   const statusText =
     task.status === "running" ? "运行中" : task.status === "done" ? "完成" : "失败";
+  const isAgent = !!task.agent;
 
   return (
     <div className="rounded-lg border bg-muted/30 text-sm">
@@ -54,7 +78,16 @@ export function TaskCard({ task }: { task: TaskView }) {
         aria-expanded={open}
       >
         {icon}
-        <span className="shrink-0 font-medium">子任务</span>
+        {isAgent ? (
+          <span
+            className={cn("shrink-0 rounded bg-background px-1.5 py-0.5 font-medium", agentColor(task.agent))}
+            title="子 Agent 委派"
+          >
+            {task.agent}
+          </span>
+        ) : (
+          <span className="shrink-0 font-medium">子任务</span>
+        )}
         <span className="truncate text-xs text-muted-foreground">{task.label}</span>
         <span className="ml-auto shrink-0 text-xs text-muted-foreground">{statusText}</span>
         {open ? (

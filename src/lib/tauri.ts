@@ -166,16 +166,16 @@ export interface SettingsView {
 /** Agent 内核统一事件（与 Rust AgentEvent 对应） */
 export type AgentEvent =
   | { type: "text_delta"; text: string }
-  | { type: "tool_call"; name: string; args: string }
-  | { type: "tool_result"; name: string; output: string }
+  | { type: "tool_call"; name: string; args: string; call_id?: string | null }
+  | { type: "tool_result"; name: string; output: string; call_id?: string | null }
   | { type: "final"; output: string }
   | { type: "error"; message: string }
   | { type: "approval_request"; id: number; tool: string; title: string; detail: string }
   | { type: "approval_resolved"; id: number; allowed: boolean; note: string | null }
-  | { type: "sub_task_start"; id: string; label: string }
+  | { type: "sub_task_start"; id: string; label: string; agent?: string | null }
   | { type: "sub_task_delta"; id: string; text: string }
-  | { type: "sub_task_tool_call"; id: string; name: string; args: string }
-  | { type: "sub_task_tool_result"; id: string; name: string; output: string }
+  | { type: "sub_task_tool_call"; id: string; name: string; args: string; call_id?: string | null }
+  | { type: "sub_task_tool_result"; id: string; name: string; output: string; call_id?: string | null }
   | { type: "sub_task_end"; id: string; status: string; summary: string }
   | { type: "proposal_applied"; id: number; rel_path: string; result: string }
   | { type: "goal_update"; goal: SessionGoalView }
@@ -261,6 +261,21 @@ export interface SkillMeta {
 export interface SkillRaw {
   content: string;
   source: "builtin" | "work";
+}
+
+/** 子 Agent 清单项（R8-② 多 Agent 团队管理页） */
+export interface AgentMeta {
+  name: string;
+  description: string;
+  source: "builtin" | "user";
+  overridden: boolean;
+  max_turns: number;
+}
+
+/** 子 Agent 原始 md（管理页编辑） */
+export interface AgentRaw {
+  content: string;
+  source: "builtin" | "user";
 }
 
 export interface MessageView {
@@ -500,6 +515,13 @@ export const api = {
     call<SkillRaw>("read_skill", { workPath, name }),
   writeSkill: (workPath: string, name: string, content: string) =>
     call<void>("write_skill", { workPath, name, content }),
+
+  // 子 Agent 管理（R8-②：用户级 AgentProfile CRUD）
+  listAgents: () => call<AgentMeta[]>("list_agents"),
+  readAgent: (name: string) => call<AgentRaw>("read_agent", { name }),
+  writeAgent: (name: string, content: string) =>
+    call<void>("write_agent", { name, content }),
+  deleteAgent: (name: string) => call<void>("delete_agent", { name }),
 
   // 装配
   previewAssembly: (

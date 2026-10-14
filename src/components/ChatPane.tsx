@@ -376,7 +376,15 @@ export function ChatPane({
     } else if (ev.type === "sub_task_start") {
       setSubtasks((list) => [
         ...list,
-        { id: ev.id, label: ev.label, status: "running", text: "", toolCalls: [], summary: null },
+        {
+          id: ev.id,
+          label: ev.label,
+          status: "running",
+          text: "",
+          toolCalls: [],
+          summary: null,
+          agent: ev.agent ?? null,
+        },
       ]);
     } else if (ev.type === "sub_task_delta") {
       setSubtasks((list) =>
@@ -386,7 +394,13 @@ export function ChatPane({
       setSubtasks((list) =>
         list.map((t) =>
           t.id === ev.id
-            ? { ...t, toolCalls: [...t.toolCalls, { name: ev.name, args: ev.args, result: null }] }
+            ? {
+                ...t,
+                toolCalls: [
+                  ...t.toolCalls,
+                  { name: ev.name, args: ev.args, result: null, callId: ev.call_id ?? null },
+                ],
+              }
             : t,
         ),
       );
@@ -395,12 +409,20 @@ export function ChatPane({
         list.map((t) => {
           if (t.id !== ev.id) return t;
           const calls = [...t.toolCalls];
-          for (let i = calls.length - 1; i >= 0; i--) {
-            if (calls[i].name === ev.name && calls[i].result === null) {
-              calls[i] = { ...calls[i], result: ev.output };
-              break;
+          // R8-③：call_id 精确配对优先；旧路径无 id 回退按名配对
+          let idx = -1;
+          if (ev.call_id) {
+            idx = calls.findIndex((c) => c.callId === ev.call_id && c.result === null);
+          }
+          if (idx < 0) {
+            for (let i = calls.length - 1; i >= 0; i--) {
+              if (calls[i].name === ev.name && calls[i].result === null) {
+                idx = i;
+                break;
+              }
             }
           }
+          if (idx >= 0) calls[idx] = { ...calls[idx], result: ev.output };
           return { ...t, toolCalls: calls };
         }),
       );
@@ -489,17 +511,30 @@ export function ChatPane({
             case "tool_call":
               last.state = {
                 ...s,
-                toolCalls: [...s.toolCalls, { name: ev.name, args: ev.args, result: null, state: "running" }],
+                toolCalls: [
+                  ...s.toolCalls,
+                  { name: ev.name, args: ev.args, result: null, state: "running", callId: ev.call_id ?? null },
+                ],
               };
               break;
             case "tool_result": {
               const calls = [...s.toolCalls];
-              for (let i = calls.length - 1; i >= 0; i--) {
-                if (calls[i].name === ev.name && calls[i].state === "running") {
-                  calls[i] = { ...calls[i], result: ev.output, state: "done" };
-                  break;
+              // R8-③：call_id 精确配对优先（并行 spawn_agent 同名工具），回退按名
+              let idx = -1;
+              if (ev.call_id) {
+                idx = calls.findIndex(
+                  (c) => c.callId === ev.call_id && c.state === "running",
+                );
+              }
+              if (idx < 0) {
+                for (let i = calls.length - 1; i >= 0; i--) {
+                  if (calls[i].name === ev.name && calls[i].state === "running") {
+                    idx = i;
+                    break;
+                  }
                 }
               }
+              if (idx >= 0) calls[idx] = { ...calls[idx], result: ev.output, state: "done" };
               last.state = { ...s, toolCalls: calls };
               break;
             }

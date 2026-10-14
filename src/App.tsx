@@ -5,6 +5,7 @@ import { Launcher } from "@/pages/Launcher";
 import { Workbench } from "@/pages/Workbench";
 import { Settings } from "@/pages/Settings";
 import { GlobalChat } from "@/pages/GlobalChat";
+import { Agents } from "@/pages/Agents";
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
             <Route path="/chat" element={<GlobalChat />} />
             <Route path="/work" element={<Workbench />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/agents" element={<Agents />} />
           </Routes>
         </div>
       </div>

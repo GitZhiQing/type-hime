@@ -1,12 +1,13 @@
 import { NavLink } from "react-router-dom";
-import { BookOpenText, MessagesSquare, Settings2 } from "lucide-react";
+import { BookOpenText, Bot, MessagesSquare, Settings2 } from "lucide-react";
 import { cn } from "cn";
 
-/** 最左应用导航栏：对话（无作品上下文）/ 创作（项目库）/ 配置（REDESIGN §5.1） */
+/** 最左应用导航栏：对话（无作品上下文）/ 创作（项目库）/ Agents（子 Agent 团队）/ 配置 */
 export function AppRail() {
   const items = [
     { to: "/chat", label: "对话", icon: MessagesSquare, end: false },
     { to: "/", label: "创作", icon: BookOpenText, end: true },
+    { to: "/agents", label: "Agents", icon: Bot, end: false },
     { to: "/settings", label: "配置", icon: Settings2, end: false },
   ];
   return (
