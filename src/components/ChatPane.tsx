@@ -64,6 +64,8 @@ interface ChatProps {
   onTurnDone: () => void;
   /** R17 下一步行动 chips（输入框上方快捷入口；空数组不渲染） */
   chips?: NextAction[];
+  /** 会话/轮次刷新计数（D53：自动标题落盘后刷新标题栏；与外部列表共用） */
+  refreshKey?: number;
   /** 输入框上方的插槽（work 作用域放 PLAN 条；REDESIGN §5.4） */
   planSlot?: ReactNode;
 }
@@ -108,6 +110,7 @@ export function ChatPane({
   onNewSession,
   onTurnDone,
   chips,
+  refreshKey = 0,
   planSlot,
 }: ChatProps) {
   const [messages, setMessages] = useState<MessageView[]>([]);
@@ -128,6 +131,8 @@ export function ChatPane({
   const [historyTasks, setHistoryTasks] = useState<SubTaskRecord[]>([]);
   /** 当前会话权限档位（R4-③：输入框左下角下拉；scope=work） */
   const [permMode, setPermMode] = useState<PermissionMode>("confirm");
+  /** 当前会话标题（D53：标题栏；无存档/新会话回落「新会话」） */
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   /** 轮次计数（R10：一轮完成 +1，驱动输入框下方上下文用量刷新） */
   const [turnKey, setTurnKey] = useState(0);
   const busyRef = useRef(false);
@@ -189,24 +194,28 @@ export function ChatPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, workPath, sessionId]);
 
-  // 权限档位：随会话加载/切换（R4-③）。新会话尚无存档时回落默认「变更前确认」，
-  // 不得沿用上一个会话的档位显示（曾致：按钮显示完全访问、后端实际确认档）。
+  // 会话元信息（D53：标题栏 + 权限档位）：随会话切换 / 首轮自动标题落盘（refreshKey）刷新。
+  // 档位回落规则（R4-③）：新会话尚无存档时回落「变更前确认」——不得沿用上一个会话的档位显示
+  // （曾致：按钮显示完全访问、后端实际确认档）。
   useEffect(() => {
-    if (!isWork || !workPath || !sessionId) return;
+    if (!sessionId) {
+      setSessionTitle(null);
+      return;
+    }
     let alive = true;
-    api
-      .listSessions(workPath)
-      .then((list) => {
-        if (!alive) return;
-        const cur = list.find((s) => s.id === sessionId);
-        setPermMode(cur ? cur.permission_mode : "confirm");
-      })
-      .catch(() => {});
+    const p = isWork
+      ? api.listSessions(workPath!).then((list) => list.find((s) => s.id === sessionId) ?? null)
+      : api.listSessionsGlobal().then((list) => list.find((s) => s.id === sessionId) ?? null);
+    p.then((meta) => {
+      if (!alive) return;
+      setSessionTitle(meta?.title ?? null);
+      if (isWork) setPermMode(meta ? meta.permission_mode : "confirm");
+    }).catch(() => {});
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWork, workPath, sessionId]);
+  }, [scope, workPath, sessionId, refreshKey]);
 
   /** 切换会话权限档位（无会话时先建会话） */
   async function changePermissionMode(mode: PermissionMode) {
@@ -683,6 +692,14 @@ export function ChatPane({
 
   return (
     <div className="flex h-full flex-col">
+      {/* D53：会话标题栏（用户反馈：红框区显示当前会话标题） */}
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
+        <span className="min-w-0 truncate text-sm font-medium" title={sessionTitle ?? undefined}>
+          {sessionTitle ?? "新会话"}
+        </span>
+      </div>
+      {/* 流程条（PLAN/目标横幅）在标题栏之下（D53 用户反馈：自输入框上方上移） */}
+      {planSlot && <div className="shrink-0">{planSlot}</div>}
       <Conversation>
         <ConversationContent>
           {/* 历史渲染（D50 抽为共享组件：子 Agent 会话视图复用同一套只读渲染；
@@ -821,7 +838,6 @@ export function ChatPane({
         <ConversationScrollButton />
       </Conversation>
 
-      {planSlot && <div className="shrink-0 border-t">{planSlot}</div>}
       <div className="shrink-0 border-t p-2">
         {/* R17 下一步行动 chips：主行动+备选直达（命令成为快捷方式而非必经路径）；
             空态由欢迎卡的行动按钮承载，此处不重复渲染 */}

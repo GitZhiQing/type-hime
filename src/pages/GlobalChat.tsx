@@ -43,6 +43,7 @@ export function GlobalChat() {
             sessionId={sessionId}
             onNewSession={createSession}
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
+            refreshKey={sessionRefresh}
           />
         </ResizablePanel>
       </ResizablePanelGroup>

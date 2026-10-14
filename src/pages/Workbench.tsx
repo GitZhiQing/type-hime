@@ -221,6 +221,7 @@ export function Workbench() {
             onNewSession={createSession}
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
             chips={next.chips}
+            refreshKey={sessionRefresh}
             planSlot={
               <>
                 <GoalBar

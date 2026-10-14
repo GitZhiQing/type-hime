@@ -99,7 +99,7 @@ export function GoalBar({ workPath, sessionId, refreshKey = 0 }: GoalBarProps) {
   const rounds = `${goal.iterations.length}/${goal.budget.max_iterations}`;
 
   return (
-    <Collapsible className="shrink-0 border-b bg-muted/20">
+    <Collapsible className="group relative shrink-0 border-b bg-muted/20">
       <CollapsibleTrigger
         render={
           <button
@@ -127,7 +127,8 @@ export function GoalBar({ workPath, sessionId, refreshKey = 0 }: GoalBarProps) {
         </span>
       </CollapsibleTrigger>
 
-      <CollapsibleContent>
+      {/* D53：展开内容浮层覆盖（absolute），不占布局——与 PLAN 条同一处理 */}
+      <CollapsibleContent className="absolute top-full right-0 left-0 z-20 max-h-[60vh] overflow-y-auto border-b bg-background shadow-md">
         <div className="border-t px-3 py-2.5">
           {/* 目标全文 + 预算 */}
           <p className="text-xs leading-relaxed">{goal.objective}</p>

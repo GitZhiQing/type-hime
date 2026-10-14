@@ -55,7 +55,7 @@ export function PlanBar({ workPath, pipeline, hasSample, next, onChange }: PlanB
   const confirmedCount = pipeline.gates.filter((g) => g.confirmed).length;
 
   return (
-    <Collapsible className="shrink-0 border-b bg-muted/30">
+    <Collapsible className="group relative shrink-0 border-b bg-muted/30">
       <div className="flex h-8 items-center gap-2 px-2 text-[11px]">
         <CollapsibleTrigger
           render={
@@ -144,7 +144,8 @@ export function PlanBar({ workPath, pipeline, hasSample, next, onChange }: PlanB
         </div>
       </div>
 
-      <CollapsibleContent>
+      {/* D53：展开内容浮层覆盖（absolute），不占布局——否则展开挤压消息流（用户反馈） */}
+      <CollapsibleContent className="absolute top-full right-0 left-0 z-20 max-h-[60vh] overflow-y-auto border-b bg-background shadow-md">
         <div className="px-2 pt-0.5 pb-2">
           <ul className="divide-y overflow-hidden rounded-md border bg-background/60">
             {pipeline.gates.map((g) => {
