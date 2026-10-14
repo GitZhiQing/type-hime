@@ -384,6 +384,7 @@ export function ChatPane({
           toolCalls: [],
           summary: null,
           agent: ev.agent ?? null,
+          color: ev.color ?? null,
         },
       ]);
     } else if (ev.type === "sub_task_delta") {
@@ -456,6 +457,8 @@ export function ChatPane({
                 ...t,
                 status: ev.status === "done" ? "done" : "error",
                 summary: ev.summary,
+                tokens: ev.tokens ?? null,
+                durationMs: ev.duration_ms ?? null,
               }
             : t,
         );
