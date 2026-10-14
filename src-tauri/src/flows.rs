@@ -761,8 +761,8 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
             "生成正文",
             format!(
                 "请用 spawn_agent 工具委派 general 子 Agent 撰写本章正文（目标文件 {ch_path}）。\n\
-                 委派前你须装配上下文并入委派 prompt：卷纲要点、本章章纲全文、账本要点（用 get_ledger 取角色当前状态）、上一章结尾（读上一章文件末段）、文风指令（settings/style/文风指令.md）。\n\
-                 要求子 Agent：按 writer-basics 规程写足章纲全部情节点，全文一次 propose_write，正文先自检（与账本不冲突、不提前说破伏笔）。{chapter_hint}"
+                 委派前你须装配上下文并入委派 prompt：卷纲要点、本章章纲全文、账本要点（用 get_ledger 取角色当前状态）、上一章结尾（读上一章文件末段）、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在则整段并入，注明「模仿句风与节奏，不得复用其内容」）。\n\
+                 要求子 Agent：按 writer-basics 规程写足章纲全部情节点，全文一次 propose_write，正文先自检（与账本不冲突、不提前说破伏笔；对照文风卡禁例与样章节奏）。{chapter_hint}"
             ),
         )),
         "回写" => Some((
@@ -786,8 +786,8 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
             "去 AI 味",
             format!(
                 "请用 spawn_agent 工具委派 general 子 Agent 对本章做去 AI 味改写（情节/人设/事实/伏笔一处不动）。\n\
-                 委派前你须装配上下文并入委派 prompt：本章正文 {ch_path} 全文要点与文风指令（settings/style/文风指令.md）。\n\
-                 要求子 Agent：删套话与万能形容、拆长句、去重复句式、把概括叙述落到具体动作细节；propose_edit 提交整章全文。{chapter_hint}"
+                 委派前你须装配上下文并入委派 prompt：本章正文 {ch_path} 全文要点、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在，改写后须贴合其句风与节奏）。\n\
+                 要求子 Agent：删套话与万能形容、删无指向的装饰性细节、拆长句、去重复句式、把概括叙述落到具体动作细节；propose_edit 提交整章全文。{chapter_hint}"
             ),
         )),
         "复检" => Some((

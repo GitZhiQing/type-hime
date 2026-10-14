@@ -1,5 +1,5 @@
 //! 规则装配引擎（D0-7）：按阶段/规则组装 prompt。
-//! 正文阶段默认装配 = 文风指令 + 本卷卷纲 + 本章章纲 + 出场角色卡 + 账本摘要 + 最近章结尾。
+//! 正文阶段默认装配 = 文风卡 + 样章正例（若有）+ 本卷卷纲 + 本章章纲 + 出场角色卡 + 账本摘要 + 最近章结尾。
 //! **可见性过滤是红线**：所有设定条目在装配出口强制过 is_prompt_visible，档位调不到隐藏条目。
 //! token 为本地近似估算（D9：CJK≈1 字/token，其他≈4 字符/token）。
 
@@ -329,16 +329,24 @@ fn assemble_at(work_dir: &Path, opts: &AssemblyOptions, detail: Detail) -> Resul
         None => push("上一章结尾".into(), None, "这是第一章，无上文"),
     }
 
-    // 系统提示词：文风指令 + 阶段任务
+    // 系统提示词：文风卡 + 样章正例（D41）+ 阶段任务
     let style = read_stripped(work_dir, "style/文风指令.md")
         .unwrap_or_else(|| "（未配置文风指令，使用默认：简体中文网文风格）".into());
+    // 样章锚点（D41）：style/样章.md 存在且非空才注入——few-shot 正例远优于形容词指令；
+    // 只模仿句风与节奏、不复用内容，防样章情节渗入正文
+    let sample = read_stripped(work_dir, "style/样章.md").filter(|s| !s.is_empty());
     let stage_task = match opts.stage {
         Stage::ChapterOutline => "任务：依据卷纲与账本，为本章撰写章纲（情节点/冲突/章末钩子）。",
         Stage::Chapters => "任务：依据章纲与全部上下文，撰写本章正文全文。",
         Stage::Review => "任务：对照账本与设定审校本章正文，输出问题清单与修复提议。",
         _ => "任务：按当前流水线阶段工作。",
     };
-    let system = format!("# 文风指令\n{style}\n\n# 阶段任务\n{stage_task}");
+    let system = match &sample {
+        Some(s) => format!(
+            "# 文风指令\n{style}\n\n# 文风正例（模仿其句风与节奏，不得复用其内容）\n{s}\n\n# 阶段任务\n{stage_task}"
+        ),
+        None => format!("# 文风指令\n{style}\n\n# 阶段任务\n{stage_task}"),
+    };
     let system_tokens = estimate_tokens(&system);
 
     let total = system_tokens
@@ -547,6 +555,48 @@ mod tests {
         assert!(r.cast.contains(&"守阁人".to_string()));
         assert!(!r.cast.contains(&"远方长老".to_string()));
         assert!(!all.contains("本章不出场"), "未出场角色卡正文不应注入");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sample_chapter_anchor_injection() {
+        // D41 样章锚点：style/样章.md 存在且非空 → system 注入「文风正例」段
+        //（文风指令之后、阶段任务之前）；缺失或仅空白 → 不注入
+        let dir = std::env::temp_dir().join(format!("type-hime-asm-sample-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for p in ["outline", "volumes/vol-01/chapters", "style"] {
+            std::fs::create_dir_all(dir.join(p)).unwrap();
+        }
+        std::fs::write(dir.join("style/文风指令.md"), "快节奏").unwrap();
+
+        let mut opts = AssemblyOptions::default();
+        opts.chapter = "ch-001".into();
+        opts.stage = Stage::Chapters;
+
+        // 缺失：不注入
+        let r = assemble(&dir, &opts).unwrap();
+        assert!(!r.system.contains("文风正例"), "无样章不应注入：{}", r.system);
+
+        // 存在且非空：注入，frontmatter 被剥掉，位置在文风指令与阶段任务之间
+        std::fs::write(
+            dir.join("style/样章.md"),
+            "---\ntype: sample\n---\n他推门进来，风也跟进来。灯芯晃了一下，又稳住。\n",
+        )
+        .unwrap();
+        let r2 = assemble(&dir, &opts).unwrap();
+        assert!(r2.system.contains("# 文风正例（模仿其句风与节奏，不得复用其内容）"));
+        assert!(r2.system.contains("灯芯晃了一下"));
+        assert!(!r2.system.contains("type: sample"), "frontmatter 不应进 system");
+        let pos_style = r2.system.find("# 文风指令").unwrap();
+        let pos_sample = r2.system.find("# 文风正例").unwrap();
+        let pos_task = r2.system.find("# 阶段任务").unwrap();
+        assert!(pos_style < pos_sample && pos_sample < pos_task, "样章段位置：文风指令 < 正例 < 阶段任务");
+
+        // 仅 frontmatter + 空白正文：视为无样章
+        std::fs::write(dir.join("style/样章.md"), "---\ntype: sample\n---\n\n").unwrap();
+        let r3 = assemble(&dir, &opts).unwrap();
+        assert!(!r3.system.contains("文风正例"), "空白样章不应注入");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
