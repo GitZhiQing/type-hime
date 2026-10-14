@@ -497,56 +497,57 @@ export function ChatPane({
         { title: `第 ${ev.iteration} 轮 · ${ev.title}`, state: { text: "", toolCalls: [] } },
       ]);
     }
+    // R9 修复：updater 必须纯函数（不可原地改元素对象）——并行双卡时 SubTask 事件高频
+    // 打断会让 React 重放 updater，非纯原地累加被重复应用（症状：每个 delta 双倍，
+    // 流结束 setMessages 全量替换后恢复）。以下分支全部返回全新对象。
     setRounds((rs) => {
       if (rs.length === 0) return rs;
+      const li = rs.length - 1;
+      const last = rs[li];
+      const s = last.state;
       switch (ev.type) {
         case "text_delta":
+          return [
+            ...rs.slice(0, li),
+            { ...last, state: { ...s, text: s.text + ev.text } },
+          ];
         case "tool_call":
-        case "tool_result":
-        case "error": {
-          const rs2 = [...rs];
-          const last = rs2[rs2.length - 1];
-          const s = last.state;
-          switch (ev.type) {
-            case "text_delta":
-              last.state = { ...s, text: s.text + ev.text };
-              break;
-            case "tool_call":
-              last.state = {
+          return [
+            ...rs.slice(0, li),
+            {
+              ...last,
+              state: {
                 ...s,
                 toolCalls: [
                   ...s.toolCalls,
                   { name: ev.name, args: ev.args, result: null, state: "running", callId: ev.call_id ?? null },
                 ],
-              };
-              break;
-            case "tool_result": {
-              const calls = [...s.toolCalls];
-              // R8-③：call_id 精确配对优先（并行 spawn_agent 同名工具），回退按名
-              let idx = -1;
-              if (ev.call_id) {
-                idx = calls.findIndex(
-                  (c) => c.callId === ev.call_id && c.state === "running",
-                );
-              }
-              if (idx < 0) {
-                for (let i = calls.length - 1; i >= 0; i--) {
-                  if (calls[i].name === ev.name && calls[i].state === "running") {
-                    idx = i;
-                    break;
-                  }
-                }
-              }
-              if (idx >= 0) calls[idx] = { ...calls[idx], result: ev.output, state: "done" };
-              last.state = { ...s, toolCalls: calls };
-              break;
-            }
-            case "error":
-              last.state = { ...s, text: s.text + `\n\n[错误] ${ev.message}` };
-              break;
+              },
+            },
+          ];
+        case "tool_result": {
+          const calls = [...s.toolCalls];
+          // R8-③：call_id 精确配对优先（并行 spawn_agent 同名工具），回退按名
+          let idx = -1;
+          if (ev.call_id) {
+            idx = calls.findIndex((c) => c.callId === ev.call_id && c.state === "running");
           }
-          return rs2;
+          if (idx < 0) {
+            for (let i = calls.length - 1; i >= 0; i--) {
+              if (calls[i].name === ev.name && calls[i].state === "running") {
+                idx = i;
+                break;
+              }
+            }
+          }
+          if (idx >= 0) calls[idx] = { ...calls[idx], result: ev.output, state: "done" };
+          return [...rs.slice(0, li), { ...last, state: { ...s, toolCalls: calls } }];
         }
+        case "error":
+          return [
+            ...rs.slice(0, li),
+            { ...last, state: { ...s, text: s.text + `\n\n[错误] ${ev.message}` } },
+          ];
         default:
           return rs;
       }
