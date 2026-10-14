@@ -17,8 +17,15 @@ import { GoalBar } from "@/components/GoalBar";
 import { ArtifactsPane } from "@/components/artifacts/ArtifactsPane";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
+import {
+  ArrowLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
 
 /**
  * 项目页（R5-① 起三栏 = 会话列表 | 聊天 | 制品面板；REDESIGN §5.2）。
@@ -30,6 +37,51 @@ function treeHasPath(node: TreeNode | null, path: string): boolean {
   if (!node) return false;
   if (!node.is_dir && node.path === path) return true;
   return node.children.some((c) => treeHasPath(c, path));
+}
+
+/** 面板收起/展开切换（D55）：把绝对句柄抽象成按钮。 */
+function PanelToggle({
+  side,
+  collapsed,
+  onClick,
+}: {
+  side: "left" | "right";
+  collapsed: boolean;
+  onClick: () => void;
+}) {
+  const label =
+    side === "left"
+      ? collapsed
+        ? "展开会话列表"
+        : "收起会话列表"
+      : collapsed
+        ? "展开制品面板"
+        : "收起制品面板";
+  const Icon = collapsed
+    ? side === "left"
+      ? PanelLeftOpen
+      : PanelRightOpen
+    : side === "left"
+      ? PanelLeftClose
+      : PanelRightClose;
+  return (
+    <button
+      type="button"
+      className="shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      <Icon className="size-3.5" />
+    </button>
+  );
+}
+
+function togglePanel(ref: React.RefObject<PanelImperativeHandle | null>) {
+  const p = ref.current;
+  if (!p) return;
+  if (p.isCollapsed()) p.expand();
+  else p.collapse();
 }
 
 export function Workbench() {
@@ -48,6 +100,11 @@ export function Workbench() {
   const [sessionRefresh, setSessionRefresh] = useState(0);
   /** 本作品待审提议数（R17 下一步行动条：有待审提议时「审 N 条提议」最优先） */
   const [pendingProposals, setPendingProposals] = useState(0);
+  /** D55：两侧面板完全收起状态（标题栏按钮切换；拖拽收起时经 onResize 同步） */
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const leftPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
 
   const workPath = work?.path ?? "";
 
@@ -197,8 +254,17 @@ export function Workbench() {
       </header>
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
-        {/* 左栏：本项目会话列表（R5 起独占左栏；资源树/git 移入制品面板） */}
-        <ResizablePanel defaultSize={20} minSize={13}>
+        {/* 左栏：本项目会话列表（R5 起独占左栏；资源树/git 移入制品面板）。
+            D55：collapsible + collapsedSize=0——标题栏按钮可完全收起（拖拽到底亦可） */}
+        <ResizablePanel
+          defaultSize={20}
+          minSize={13}
+          collapsible
+          collapsedSize={0}
+          panelRef={leftPanelRef}
+          onResize={(s) => setLeftCollapsed(s.asPercentage < 0.5)}
+          className="overflow-hidden"
+        >
           <SessionList
             scope="work"
             workPath={workPath}
@@ -211,7 +277,7 @@ export function Workbench() {
 
         <ResizableHandle withHandle />
 
-        {/* 中栏：聊天主操作面；PLAN 条与目标横幅常驻输入框上方 */}
+        {/* 中栏：聊天主操作面；标题栏下方为流程条（PLAN/目标横幅） */}
         <ResizablePanel defaultSize={45} minSize={24}>
           <ChatPane
             scope="work"
@@ -222,6 +288,20 @@ export function Workbench() {
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
             chips={next.chips}
             refreshKey={sessionRefresh}
+            barStart={
+              <PanelToggle
+                collapsed={leftCollapsed}
+                side="left"
+                onClick={() => togglePanel(leftPanelRef)}
+              />
+            }
+            barEnd={
+              <PanelToggle
+                collapsed={rightCollapsed}
+                side="right"
+                onClick={() => togglePanel(rightPanelRef)}
+              />
+            }
             planSlot={
               <>
                 <GoalBar
@@ -245,8 +325,16 @@ export function Workbench() {
 
         <ResizableHandle withHandle />
 
-        {/* 右栏：制品面板（R5-①：VS Code 式多标签） */}
-        <ResizablePanel defaultSize={35} minSize={18}>
+        {/* 右栏：制品面板（R5-①：VS Code 式多标签；D55 可完全收起） */}
+        <ResizablePanel
+          defaultSize={35}
+          minSize={18}
+          collapsible
+          collapsedSize={0}
+          panelRef={rightPanelRef}
+          onResize={(s) => setRightCollapsed(s.asPercentage < 0.5)}
+          className="overflow-hidden"
+        >
           <ArtifactsPane
             workPath={workPath}
             tree={tree}

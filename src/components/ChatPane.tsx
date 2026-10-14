@@ -11,7 +11,7 @@ import {
   TreeNode,
 } from "@/lib/tauri";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, Target } from "lucide-react";
+import { Loader2, Pencil, ShieldCheck, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { runNextAction, type NextAction } from "@/lib/nextStep";
 import {
@@ -66,6 +66,9 @@ interface ChatProps {
   chips?: NextAction[];
   /** 会话/轮次刷新计数（D53：自动标题落盘后刷新标题栏；与外部列表共用） */
   refreshKey?: number;
+  /** 标题栏首/末端插槽（D55：两侧面板收起/展开按钮由父层注入） */
+  barStart?: ReactNode;
+  barEnd?: ReactNode;
   /** 输入框上方的插槽（work 作用域放 PLAN 条；REDESIGN §5.4） */
   planSlot?: ReactNode;
 }
@@ -111,6 +114,8 @@ export function ChatPane({
   onTurnDone,
   chips,
   refreshKey = 0,
+  barStart,
+  barEnd,
   planSlot,
 }: ChatProps) {
   const [messages, setMessages] = useState<MessageView[]>([]);
@@ -133,6 +138,11 @@ export function ChatPane({
   const [permMode, setPermMode] = useState<PermissionMode>("confirm");
   /** 当前会话标题（D53：标题栏；无存档/新会话回落「新会话」） */
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  /** 会话创建时间（D54：标题栏右侧小字） */
+  const [sessionCreatedAt, setSessionCreatedAt] = useState<string | null>(null);
+  /** 标题栏重命名态（内联输入；D54） */
+  const [renaming, setRenaming] = useState(false);
+  const [renameText, setRenameText] = useState("");
   /** 轮次计数（R10：一轮完成 +1，驱动输入框下方上下文用量刷新） */
   const [turnKey, setTurnKey] = useState(0);
   const busyRef = useRef(false);
@@ -209,6 +219,7 @@ export function ChatPane({
     p.then((meta) => {
       if (!alive) return;
       setSessionTitle(meta?.title ?? null);
+      setSessionCreatedAt(meta?.created_at ?? null);
       if (isWork) setPermMode(meta ? meta.permission_mode : "confirm");
     }).catch(() => {});
     return () => {
@@ -217,8 +228,25 @@ export function ChatPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, workPath, sessionId, refreshKey]);
 
-  /** 切换会话权限档位（无会话时先建会话） */
-  async function changePermissionMode(mode: PermissionMode) {
+  /** 提交标题重命名（D54：标题栏内联编辑；Enter/blur 提交、Esc 取消） */
+  async function commitTitleRename() {
+    const title = renameText.trim();
+    setRenaming(false);
+    if (!sessionId || !title || title === sessionTitle) return;
+    try {
+      if (isWork && workPath) {
+        await api.renameSession(workPath, sessionId, title);
+      } else {
+        await api.renameSessionGlobal(sessionId, title);
+      }
+      setSessionTitle(title);
+      onTurnDone(); // 会话列表同步
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }
+
+  /** 切换会话权限档位（无会话时先建会话） */  async function changePermissionMode(mode: PermissionMode) {
     if (!isWork || !workPath) return;
     const sid = sessionId ?? onNewSession();
     try {
@@ -692,11 +720,52 @@ export function ChatPane({
 
   return (
     <div className="flex h-full flex-col">
-      {/* D53：会话标题栏（用户反馈：红框区显示当前会话标题） */}
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
-        <span className="min-w-0 truncate text-sm font-medium" title={sessionTitle ?? undefined}>
-          {sessionTitle ?? "新会话"}
-        </span>
+      {/* D53：会话标题栏；D54：重命名 + 创建时间；D55：两端面板收起按钮（barStart/barEnd） */}
+      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b px-3">
+        {barStart}
+        {renaming ? (
+          <input
+            className="min-w-0 flex-1 rounded-sm border bg-transparent px-1.5 py-0.5 text-sm outline-none focus-visible:border-ring"
+            value={renameText}
+            autoFocus
+            aria-label="会话标题"
+            onChange={(e) => setRenameText(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void commitTitleRename();
+              if (e.key === "Escape") setRenaming(false);
+            }}
+            onBlur={() => void commitTitleRename()}
+          />
+        ) : (
+          <>
+            <span className="min-w-0 truncate text-sm font-medium" title={sessionTitle ?? undefined}>
+              {sessionTitle ?? "新会话"}
+            </span>
+            {sessionId && (
+              <button
+                type="button"
+                className="shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+                title="重命名会话"
+                aria-label="重命名会话"
+                onClick={() => {
+                  setRenameText(sessionTitle ?? "");
+                  setRenaming(true);
+                }}
+              >
+                <Pencil className="size-3" />
+              </button>
+            )}
+          </>
+        )}
+        {!renaming && sessionCreatedAt && (
+          <span
+            className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
+            title={sessionCreatedAt}
+          >
+            {sessionCreatedAt.slice(0, 16)}
+          </span>
+        )}
+        {barEnd}
       </div>
       {/* 流程条（PLAN/目标横幅）在标题栏之下（D53 用户反馈：自输入框上方上移） */}
       {planSlot && <div className="shrink-0">{planSlot}</div>}
