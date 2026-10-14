@@ -601,32 +601,45 @@ export function ChatPane({
     <div className="flex h-full flex-col">
       <Conversation>
         <ConversationContent>
-          {messages.map((m, i) => (
-            <div key={i} className="flex flex-col gap-1.5">
-              {m.tool_calls?.map((tc, j) => (
-                <ToolCallCard
-                  key={j}
-                  call={{
-                    name: tc.name,
-                    args: tc.args,
-                    result: tc.result,
-                    isError: tc.is_error,
-                  }}
-                />
-              ))}
-              {m.text.trim() !== "" && (
-                <Message from={m.role === "user" ? "user" : "assistant"}>
-                  <MessageContent>
-                    {m.role === "user" ? (
-                      <MessageText text={m.text} />
-                    ) : (
-                      <MessageResponse>{m.text}</MessageResponse>
-                    )}
-                  </MessageContent>
-                </Message>
-              )}
-            </div>
-          ))}
+          {/* 历史渲染：连续 assistant 消息合并为一个视觉流——一轮 Agent 执行（工具调用循环）
+              在档案里是多条消息，若各成一块，块间 gap-3 与块内 gap-1.5 交替会让工具卡
+              间距忽大忽小（用户反馈：spawn_agent 卡前后明显不等）；合并后整轮统一 gap-1.5 */}
+          {(() => {
+            const groups: MessageView[][] = [];
+            for (const m of messages) {
+              const g = groups[groups.length - 1];
+              if (m.role !== "user" && g && g[g.length - 1].role !== "user") g.push(m);
+              else groups.push([m]);
+            }
+            return groups.map((g, gi) => (
+              <div key={gi} className="flex flex-col gap-1.5">
+                {g.flatMap((m, mi) => [
+                  ...(m.tool_calls ?? []).map((tc, j) => (
+                    <ToolCallCard
+                      key={`t${mi}-${j}`}
+                      call={{
+                        name: tc.name,
+                        args: tc.args,
+                        result: tc.result,
+                        isError: tc.is_error,
+                      }}
+                    />
+                  )),
+                  m.text.trim() !== "" ? (
+                    <Message key={`m${mi}`} from={m.role === "user" ? "user" : "assistant"}>
+                      <MessageContent>
+                        {m.role === "user" ? (
+                          <MessageText text={m.text} />
+                        ) : (
+                          <MessageResponse>{m.text}</MessageResponse>
+                        )}
+                      </MessageContent>
+                    </Message>
+                  ) : null,
+                ])}
+              </div>
+            ));
+          })()}
           {rounds.map((r, ri) => {
             const isLast = ri === rounds.length - 1;
             return (
