@@ -809,6 +809,8 @@ pub fn run() {
             get_works_root,
             set_works_root,
             list_dirs,
+            delete_work,
+            rename_work,
             list_works,
             create_work,
             read_tree,
@@ -913,6 +915,18 @@ fn set_works_root(path: String) -> Result<String, String> {
 #[tauri::command]
 fn list_dirs(path: Option<String>) -> Result<works::DirListing, String> {
     works::list_dirs(path)
+}
+
+/// 删除作品（D57）：移到工作区「_回收站」（可找回），不做不可逆删除。
+#[tauri::command]
+fn delete_work(work_path: String) -> Result<String, String> {
+    works::delete_work(&work_path)
+}
+
+/// 重命名作品（D57）：目录名与 project.json 同步。
+#[tauri::command]
+fn rename_work(work_path: String, new_name: String) -> Result<WorkSummary, String> {
+    works::rename_work(&work_path, &new_name)
 }
 
 #[tauri::command]

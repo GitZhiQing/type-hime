@@ -418,6 +418,11 @@ export const api = {
   listWorks: () => call<WorkSummary[]>("list_works"),
   createWork: (name: string, base?: string) =>
     call<WorkSummary>("create_work", { name, base: base ?? null }),
+  /** 重命名作品（D57）：目录名与 project.json 同步 */
+  renameWork: (workPath: string, newName: string) =>
+    call<WorkSummary>("rename_work", { workPath, newName }),
+  /** 删除作品（D57）：移入工作区「_回收站」（可找回）；返回回收站落点路径 */
+  deleteWork: (workPath: string) => call<string>("delete_work", { workPath }),
   readTree: (workPath: string) => call<TreeNode>("read_tree", { workPath }),
   readFile: (workPath: string, relPath: string) =>
     call<string>("read_file", { workPath, relPath }),

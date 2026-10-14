@@ -233,13 +233,7 @@ pub fn create_work(name: &str, base: Option<String>) -> Result<WorkSummary, Stri
     };
     std::fs::create_dir_all(&root).map_err(|e| format!("创建库目录失败：{e}"))?;
 
-    let dir_name: String = name
-        .chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect();
+    let dir_name = sanitize_dir_name(name);
     let work_dir = unique_dir(&root, &dir_name)?;
 
     write_skeleton(&work_dir, name)?;
@@ -256,6 +250,101 @@ pub fn create_work(name: &str, base: Option<String>) -> Result<WorkSummary, Stri
 }
 
 /// 生成不冲突的目录名（作品名重复时追加 -2、-3 …）。
+/// 目录名清洗（create_work / rename_work 共用）：非法字符替换为下划线。
+fn sanitize_dir_name(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect()
+}
+
+/// 作品管理前置校验（D57）：必须是该工作区的直接子目录且含 project.json——
+/// 防误删/误改工作区外目录或非作品目录。
+fn ensure_work_in_root(root: &Path, work_path: &str) -> Result<PathBuf, String> {
+    let dir = PathBuf::from(work_path.trim());
+    if dir.parent() != Some(root) {
+        return Err("只能管理当前工作区下的作品".into());
+    }
+    if !dir.join("project.json").is_file() {
+        return Err("不是作品目录（缺 project.json）".into());
+    }
+    Ok(dir)
+}
+
+/// 删除作品（D57）：**移到工作区下的「_回收站」（可手动找回）**，不做不可逆删除。
+/// 返回回收站内的落点路径。
+pub fn delete_work_in(root: &Path, work_path: &str) -> Result<String, String> {
+    let dir = ensure_work_in_root(root, work_path)?;
+    let name = dir
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "work".to_string());
+    let trash = root.join("_回收站");
+    std::fs::create_dir_all(&trash).map_err(|e| format!("创建回收站失败：{e}"))?;
+    let ts: String = now_iso().chars().filter(|c| c.is_ascii_digit()).collect();
+    let dest = trash.join(format!("{name}-{ts}"));
+    if dest.exists() {
+        let _ = std::fs::remove_dir_all(&dest); // 同秒重名极少；移走占位再改名
+    }
+    std::fs::rename(&dir, &dest).map_err(|e| format!("移入回收站失败：{e}"))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+pub fn delete_work(work_path: &str) -> Result<String, String> {
+    let root = PathBuf::from(&load_config()?.works_root);
+    delete_work_in(&root, work_path)
+}
+
+/// 重命名作品（D57）：目录名与 project.json 的 name 同步更新
+/// （project.json 其余字段原样保留——按 Value 改单字段，不用结构化重写）。
+pub fn rename_work_in(root: &Path, work_path: &str, new_name: &str) -> Result<WorkSummary, String> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        return Err("作品名不能为空".into());
+    }
+    let dir = ensure_work_in_root(root, work_path)?;
+    let meta_raw = std::fs::read_to_string(dir.join("project.json"))
+        .map_err(|e| format!("读取 project.json 失败：{e}"))?;
+    let mut meta: serde_json::Value =
+        serde_json::from_str(&meta_raw).map_err(|e| format!("解析 project.json 失败：{e}"))?;
+    let created_at = meta
+        .get("created_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let target = root.join(sanitize_dir_name(new_name));
+    let renamed_dir = if target == dir {
+        dir.clone()
+    } else {
+        if target.exists() {
+            return Err(format!("同名目录已存在：{}", target.to_string_lossy()));
+        }
+        std::fs::rename(&dir, &target).map_err(|e| format!("重命名目录失败：{e}"))?;
+        target
+    };
+
+    meta["name"] = serde_json::Value::String(new_name.to_string());
+    let out = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
+    std::fs::write(renamed_dir.join("project.json"), out)
+        .map_err(|e| format!("写入 project.json 失败：{e}"))?;
+    // 作品仓库留痕（git 失败容忍：重命名以磁盘状态为准）
+    let _ = git::commit_all(&renamed_dir, "重命名作品");
+
+    Ok(WorkSummary {
+        name: new_name.to_string(),
+        path: renamed_dir.to_string_lossy().into_owned(),
+        created_at,
+    })
+}
+
+pub fn rename_work(work_path: &str, new_name: &str) -> Result<WorkSummary, String> {
+    let root = PathBuf::from(&load_config()?.works_root);
+    rename_work_in(&root, work_path, new_name)
+}
+
 fn unique_dir(root: &Path, dir_name: &str) -> Result<PathBuf, String> {
     let mut candidate = root.join(dir_name);
     let mut n = 2;
@@ -620,6 +709,55 @@ mod tests {
 
         // 不存在的目录报错
         assert!(list_dirs(Some(root.join("nope").to_string_lossy().into_owned())).is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D57：作品管理（删除=移入回收站；重命名同步目录与 project.json 且保留其余字段）
+    #[test]
+    fn delete_and_rename_work_roundtrip() {
+        let root = std::env::temp_dir().join(format!(
+            "type-hime-workmgmt-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let work = create_work("管理测试", Some(root.to_string_lossy().into_owned())).unwrap();
+
+        // 安全闸：工作区外的目录拒绝
+        assert!(delete_work_in(&root, "C:\\Windows").is_err());
+        // 安全闸：目录存在但不是作品（无 project.json）拒绝
+        let not_work = root.join("not-work");
+        std::fs::create_dir_all(&not_work).unwrap();
+        assert!(delete_work_in(&root, &not_work.to_string_lossy()).is_err());
+
+        // 重命名：目录与 project.json 同步；其余字段（注入 pipeline 模拟后续保存）保留
+        let meta_path = std::path::Path::new(&work.path).join("project.json");
+        let mut meta: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&meta_path).unwrap()).unwrap();
+        meta["pipeline"] = serde_json::json!({"stage": "settings", "confirmed": []});
+        std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap()).unwrap();
+
+        let renamed = rename_work_in(&root, &work.path, "管理测试·改名").unwrap();
+        assert!(renamed.path.ends_with("管理测试·改名"));
+        assert!(!std::path::Path::new(&work.path).exists());
+        let raw = std::fs::read_to_string(std::path::Path::new(&renamed.path).join("project.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(v["name"], "管理测试·改名");
+        assert!(v.get("pipeline").is_some(), "pipeline 字段应保留：{raw}");
+        // 同名目录冲突拒绝
+        let other = create_work("另一部", Some(root.to_string_lossy().into_owned())).unwrap();
+        std::fs::create_dir_all(root.join("管理测试·改名2")).ok();
+        assert!(rename_work_in(&root, &other.path, "管理测试·改名").is_err());
+
+        // 删除：移入 _回收站 且原位置消失
+        let trash_path = delete_work_in(&root, &renamed.path).unwrap();
+        assert!(trash_path.contains("_回收站"));
+        assert!(std::path::Path::new(&trash_path).join("project.json").is_file());
+        assert!(!std::path::Path::new(&renamed.path).exists());
 
         let _ = std::fs::remove_dir_all(&root);
     }

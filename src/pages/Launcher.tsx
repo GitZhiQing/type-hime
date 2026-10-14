@@ -10,16 +10,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { WorkspacePicker } from "@/components/WorkspacePicker";
-import { FolderOpen, Loader2, Plus } from "lucide-react";
+import { writeClipboard } from "@/components/ai/code-copy";
+import { Copy, FolderOpen, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 /**
  * 作品库（D56 重设计）：书架式布局——每部作品是一本「书」（封面卡：书名竖排 + 书脊色条），
  * 网格排列、悬停上浮；整页可滚动（此前 fixed 高度 + 纵向居中，作品一多就溢出窗口）。
- * 新建作品可指定工作区（文件夹）；浏览器通道文本输入，Tauri 外壳加原生文件夹选择。
+ * 新建作品可指定工作区（文件夹）；D57：卡片菜单支持重命名/复制路径/删除（删除=移入 _回收站）。
  */
 
 /** 按作品名散列取书脊色相（同一作品颜色稳定） */
@@ -29,36 +36,76 @@ function bookHue(name: string): number {
   return h;
 }
 
-function BookCard({ work, onOpen }: { work: WorkSummary; onOpen: () => void }) {
+function BookCard({
+  work,
+  onOpen,
+  onRename,
+  onDelete,
+  onCopyPath,
+}: {
+  work: WorkSummary;
+  onOpen: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onCopyPath: () => void;
+}) {
   const hue = bookHue(work.name);
   return (
-    <button
-      type="button"
-      className="group flex flex-col items-stretch text-left focus-visible:outline-none"
-      title={work.path}
-      onClick={onOpen}
-    >
-      <div
-        className="relative aspect-[3/4] w-full overflow-hidden rounded-md border border-black/25 shadow-sm transition-all duration-150 group-hover:-translate-y-1 group-hover:shadow-lg group-hover:brightness-110 group-focus-visible:ring-2 group-focus-visible:ring-ring"
-        style={{
-          background: `linear-gradient(155deg, hsl(${hue} 42% 32%) 0%, hsl(${(hue + 24) % 360} 48% 18%) 100%)`,
-        }}
+    /* D57：作品操作走**右键菜单**（用户反馈：三点按钮不如右键） */
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={
+          <div
+            role="button"
+            tabIndex={0}
+            className="group relative flex cursor-pointer flex-col items-stretch text-left focus-visible:outline-none"
+            title={work.path}
+            onClick={onOpen}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen();
+              }
+            }}
+          />
+        }
       >
-        {/* 书脊（左缘色条）与书口（右缘亮边） */}
-        <span
-          className="absolute inset-y-0 left-0 w-[6px]"
-          style={{ background: `hsl(${hue} 52% 44%)` }}
-        />
-        <span className="absolute inset-y-0.5 right-0.5 w-[3px] rounded-full bg-white/15" />
-        {/* 书名：竖排（中文书封惯例），自右上起排 */}
-        <span className="absolute top-2.5 right-3 bottom-2.5 max-h-[calc(100%-1.25rem)] overflow-hidden text-sm leading-relaxed font-medium tracking-wider text-white/90 [writing-mode:vertical-rl]">
-          {work.name}
+        <div
+          className="relative aspect-[3/4] w-full overflow-hidden rounded-md border border-black/25 shadow-sm transition-all duration-150 group-hover:-translate-y-1 group-hover:shadow-lg group-hover:brightness-110 group-focus-visible:ring-2 group-focus-visible:ring-ring"
+          style={{
+            background: `linear-gradient(155deg, hsl(${hue} 42% 32%) 0%, hsl(${(hue + 24) % 360} 48% 18%) 100%)`,
+          }}
+        >
+          {/* 书脊（左缘色条）与书口（右缘亮边） */}
+          <span
+            className="absolute inset-y-0 left-0 w-[6px]"
+            style={{ background: `hsl(${hue} 52% 44%)` }}
+          />
+          <span className="absolute inset-y-0.5 right-0.5 w-[3px] rounded-full bg-white/15" />
+          {/* 书名：竖排（中文书封惯例），自右上起排 */}
+          <span className="absolute top-2.5 right-3 bottom-2.5 max-h-[calc(100%-1.25rem)] overflow-hidden text-sm leading-relaxed font-medium tracking-wider text-white/90 [writing-mode:vertical-rl]">
+            {work.name}
+          </span>
+        </div>
+        <span className="mt-1.5 truncate text-center text-[10px] tabular-nums text-muted-foreground">
+          {work.created_at.slice(0, 10)}
         </span>
-      </div>
-      <span className="mt-1.5 truncate text-center text-[10px] tabular-nums text-muted-foreground">
-        {work.created_at.slice(0, 10)}
-      </span>
-    </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onRename}>
+          <Pencil className="size-3.5" />
+          重命名
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onCopyPath}>
+          <Copy className="size-3.5" />
+          复制路径
+        </ContextMenuItem>
+        <ContextMenuItem variant="destructive" onClick={onDelete}>
+          <Trash2 className="size-3.5" />
+          删除
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -72,6 +119,61 @@ export function Launcher() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** D57：作品管理（重命名 / 删除确认） */
+  const [renameFor, setRenameFor] = useState<WorkSummary | null>(null);
+  const [renameText, setRenameText] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [deleteFor, setDeleteFor] = useState<WorkSummary | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  async function reload() {
+    try {
+      setWorks(await api.listWorks());
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }
+
+  async function handleRename() {
+    const target = renameFor;
+    const name = renameText.trim();
+    if (!target || !name || renameBusy) return;
+    setRenameBusy(true);
+    try {
+      await api.renameWork(target.path, name);
+      toast.success(`已重命名为「${name}」`);
+      setRenameFor(null);
+      await reload();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    const target = deleteFor;
+    if (!target || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const trashPath = await api.deleteWork(target.path);
+      toast.success(`「${target.name}」已移入回收站`, {
+        description: `可从 ${trashPath} 手动找回`,
+      });
+      setDeleteFor(null);
+      await reload();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  async function copyPath(work: WorkSummary) {
+    const ok = await writeClipboard(work.path);
+    if (ok) toast.success("路径已复制");
+    else toast.error("复制失败：剪贴板不可用");
+  }
 
   useEffect(() => {
     api.listWorks().then(setWorks).catch((e) => setError(String(e)));
@@ -168,6 +270,12 @@ export function Launcher() {
                 key={w.path}
                 work={w}
                 onOpen={() => navigate("/work", { state: { work: w } })}
+                onRename={() => {
+                  setRenameText(w.name);
+                  setRenameFor(w);
+                }}
+                onDelete={() => setDeleteFor(w)}
+                onCopyPath={() => void copyPath(w)}
               />
             ))}
           </div>
@@ -232,6 +340,66 @@ export function Launcher() {
             >
               {creating && <Loader2 data-icon="inline-start" className="animate-spin" />}
               创建
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 重命名（D57） */}
+      <Dialog open={!!renameFor} onOpenChange={(v) => !v && setRenameFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>重命名作品</DialogTitle>
+            <DialogDescription>
+              作品目录名与作品名将同步更新（原目录会移动到新名字下）。
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="rename-name">新名字</FieldLabel>
+              <Input
+                id="rename-name"
+                value={renameText}
+                autoFocus
+                onChange={(e) => setRenameText(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleRename()}
+              />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameFor(null)}>
+              取消
+            </Button>
+            <Button
+              onClick={handleRename}
+              disabled={!renameText.trim() || renameText.trim() === renameFor?.name || renameBusy}
+            >
+              {renameBusy && <Loader2 data-icon="inline-start" className="animate-spin" />}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认（D57）：移到 _回收站，可找回 */}
+      <Dialog open={!!deleteFor} onOpenChange={(v) => !v && setDeleteFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除作品「{deleteFor?.name}」？</DialogTitle>
+            <DialogDescription>
+              作品目录将被移入工作区下的「_回收站」文件夹（可手动找回，不会被直接抹除）。
+            </DialogDescription>
+          </DialogHeader>
+          <p className="truncate rounded-md border bg-muted/40 px-2.5 py-1.5 font-mono text-xs text-muted-foreground" title={deleteFor?.path}>
+            {deleteFor?.path}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteFor(null)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteBusy}>
+              {deleteBusy && <Loader2 data-icon="inline-start" className="animate-spin" />}
+              移入回收站
             </Button>
           </DialogFooter>
         </DialogContent>

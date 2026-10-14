@@ -106,6 +106,8 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
         "get_works_root" => ok!(works::load_config().map(|c| c.works_root)),
         "set_works_root" => ok!(works::set_works_root(&s("path"))),
         "list_dirs" => ok!(works::list_dirs(opt_str("path"))),
+        "delete_work" => ok!(works::delete_work(&s("workPath"))),
+        "rename_work" => ok!(works::rename_work(&s("workPath"), &s("newName"))),
         "list_works" => ok!(works::list_works()),
         "create_work" => ok!(works::create_work(&s("name"), opt_str("base"))),
         "read_tree" => ok!(works::read_tree(&PathBuf::from(s("workPath")))),
