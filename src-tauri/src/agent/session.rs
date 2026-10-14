@@ -243,6 +243,20 @@ pub fn update_goal(
     Ok((goal, msg))
 }
 
+/// 目标字段读改写（R4.5-③ 迭代循环）：load fresh → f(&mut goal) → save。
+/// 与直调控制命令同属读改写，轮中并发暂停/清除不会被循环落库覆盖；
+/// f 返回 Err 时放弃保存。
+pub fn mutate_goal<T>(
+    store: &SessionStore,
+    id: &str,
+    f: impl FnOnce(&mut Option<crate::agent::goal::SessionGoal>) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut sess = load_session(store, id)?;
+    let out = f(&mut sess.goal)?;
+    save_session(store, &sess)?;
+    Ok(out)
+}
+
 /// 一次工具调用（结构化持久化：前端可展开查看参数与结果，与流式事件同构）。
 #[derive(Debug, Serialize, Clone)]
 pub struct ToolCallView {

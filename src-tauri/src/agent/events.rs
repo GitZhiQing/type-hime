@@ -66,4 +66,9 @@ pub enum AgentEvent {
     GoalUpdate {
         goal: crate::agent::goal::SessionGoalView,
     },
+    /// 长时目标续跑轮开始（R4.5-③：前端开新 AI 气泡；标题=上一轮验证 nextAction）
+    GoalRoundStart {
+        iteration: u32,
+        title: String,
+    },
 }

@@ -59,6 +59,13 @@ async fn run_and_save_session(
     sess.messages.extend(outcome.messages);
     sess.last_usage = outcome.usage;
     sess.usage = merge_usage(sess.usage, outcome.usage);
+    // 保存前重读磁盘上的并发可变字段（R4.5-③）：本轮运行期间，直调命令可能已改会话档案
+    // （暂停/清除目标、切权限档位、重命名标题）——load 的是轮初快照，不能覆盖这些变化。
+    if let Ok(fresh) = session::load_session(store, &sess_id) {
+        sess.goal = fresh.goal;
+        sess.permission_mode = fresh.permission_mode;
+        sess.title = fresh.title;
+    }
     session::save_session(store, &sess)
 }
 
@@ -161,6 +168,70 @@ pub async fn chat_flow(
                 _ => agent::goal::GoalControlAction::Clear,
             };
             let store = SessionStore::Work(work_dir.clone());
+            // 恢复需要流式通道驱动续跑（R4.5-③）：翻状态 → 跑恢复轮 → 进入轮末循环
+            if action == agent::goal::GoalControlAction::Resume {
+                let (goal, text) = match session::update_goal(&store, &session_id, action) {
+                    Ok((g, msg)) => (g, msg),
+                    Err(msg) => {
+                        on_event(AgentEvent::Final { output: msg });
+                        return Ok(());
+                    }
+                };
+                let goal = goal.expect("恢复成功必有目标");
+                on_event(AgentEvent::GoalUpdate {
+                    goal: goal.view(),
+                });
+                on_event(AgentEvent::Final { output: text });
+                let last = goal
+                    .iterations
+                    .last()
+                    .and_then(|it| it.verification.as_ref());
+                let (reason, next) = match last {
+                    Some(v) if !v.passed => (
+                        v.reason.clone(),
+                        v.next_action
+                            .clone()
+                            .unwrap_or_else(|| "继续完成目标的剩余要求。".to_string()),
+                    ),
+                    _ => (
+                        "目标此前被暂停，从当前进度继续推进。".to_string(),
+                        "继续完成目标的剩余要求。".to_string(),
+                    ),
+                };
+                let round_prompt = agent::goal::format_continuation_prompt(
+                    &goal.objective,
+                    goal.iterations.len() as u32,
+                    &goal.budget,
+                    goal.tokens_used,
+                    &reason,
+                    &next,
+                );
+                on_event(AgentEvent::GoalRoundStart {
+                    iteration: goal.iterations.len() as u32 + 1,
+                    title: next,
+                });
+                run_goal_round(
+                    queue,
+                    approval.clone(),
+                    &work_dir,
+                    &work_path,
+                    &session_id,
+                    &round_prompt,
+                    &on_event,
+                    &on_proposal,
+                )
+                .await?;
+                return goal_loop(
+                    queue,
+                    approval,
+                    work_dir,
+                    session_id,
+                    round_prompt,
+                    on_event,
+                    on_proposal,
+                )
+                .await;
+            }
             let (goal, text) = session::update_goal(&store, &session_id, action)
                 .map(|(g, msg)| (g, msg))
                 .unwrap_or_else(|msg| (None, msg));
@@ -176,30 +247,37 @@ pub async fn chat_flow(
         Some(block) => format!("{prompt}\n\n{block}"),
         None => prompt,
     };
-    let spec = {
-        // 技能动态挂载（R4-④ · REDESIGN §8.2）：默认 writer-basics + slash 强制 + 关键词路由
-        let mut extra = agent::skills::route_skills(&prompt, Some(&work_dir));
-        if let Some(s) = agent::spec::slash_forced_skill(&prompt) {
-            extra.push(s.to_string());
-        }
-        agent::spec::chat_spec_with_skills(&extra)
-    };
-    let runner = chat_flow_runner(Arc::clone(queue), work_path.clone(), Arc::clone(&on_proposal));
-    // 权限上下文（R4-①）：会话档位（存会话档案）+ 作品覆盖表（project.json）
+    let spec = chat_spec_for_prompt(&prompt, &work_dir);
     let store = SessionStore::Work(work_dir.clone());
-    let session_mode = session::load_session(&store, &session_id)
-        .map(|s| s.permission_mode)
-        .unwrap_or_default();
-    let perm_config = pipeline::load_permission_config(&work_dir).unwrap_or_default();
-    let permission = crate::permissions::PermissionContext::new(session_mode, perm_config);
-    let tool_ctx = ToolCtx::new(work_dir.clone(), Arc::clone(queue), on_proposal)
-        .approval(approval)
-        .event_sink(Some(Arc::clone(&on_event)))
-        .flow_runner(Some(runner))
-        .permission(Some(permission));
+    let tool_ctx = chat_tool_ctx(
+        queue,
+        approval.clone(),
+        work_dir.clone(),
+        work_path.clone(),
+        &session_id,
+        &on_event,
+        &on_proposal,
+    )?;
+    // R4.5-③：目标活跃（本轮设置或既有）才有轮末循环；Paused/终态会话的普通消息正常聊天
+    let goal_active = session::load_session(&store, &session_id)
+        .ok()
+        .and_then(|s| s.goal)
+        .is_some_and(|g| g.status == agent::goal::GoalStatus::Active);
     run_and_save_session(session_id.clone(), &store, Some(&tool_ctx), &spec, &prompt, &on_event)
         .await?;
     autotitle(&store, &session_id).await;
+    if goal_active {
+        goal_loop(
+            queue,
+            approval,
+            work_dir,
+            session_id,
+            prompt,
+            on_event,
+            on_proposal,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -224,6 +302,243 @@ pub async fn chat_flow_global(
     run_and_save_session(session_id.clone(), &store, None, &spec, &prompt, &on_event).await?;
     autotitle(&store, &session_id).await;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 长时目标轮末循环（R4.5-③ · D31）：轮末独立完成验证器 + 迭代推进
+// 迭代仅由验证器边界推进；暂停/清除在轮间生效（读改写会话档案，并发以磁盘为准）。
+
+/// chat spec 构建：技能动态挂载（默认 writer-basics + slash 强制 + 关键词路由）。
+fn chat_spec_for_prompt(prompt: &str, work_dir: &std::path::Path) -> AgentSpec {
+    let mut extra = agent::skills::route_skills(prompt, Some(work_dir));
+    if let Some(s) = agent::spec::slash_forced_skill(prompt) {
+        extra.push(s.to_string());
+    }
+    agent::spec::chat_spec_with_skills(&extra)
+}
+
+/// chat 工具上下文构建（每轮重建：档位/覆盖表随会话档案与 project.json 变化）。
+fn chat_tool_ctx(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    approval: Option<Arc<agent::approval::ApprovalBroker>>,
+    work_dir: PathBuf,
+    work_path: String,
+    session_id: &str,
+    on_event: &EventSink,
+    on_proposal: &ProposalSink,
+) -> Result<ToolCtx, String> {
+    let runner = chat_flow_runner(Arc::clone(queue), work_path, Arc::clone(on_proposal));
+    // 权限上下文（R4-①）：会话档位（存会话档案）+ 作品覆盖表（project.json）
+    let store = SessionStore::Work(work_dir.clone());
+    let session_mode = session::load_session(&store, session_id)
+        .map(|s| s.permission_mode)
+        .unwrap_or_default();
+    let perm_config = pipeline::load_permission_config(&work_dir).unwrap_or_default();
+    let permission = crate::permissions::PermissionContext::new(session_mode, perm_config);
+    Ok(ToolCtx::new(work_dir, Arc::clone(queue), Arc::clone(on_proposal))
+        .approval(approval)
+        .event_sink(Some(Arc::clone(on_event)))
+        .flow_runner(Some(runner))
+        .permission(Some(permission)))
+}
+
+/// 验证器基础设施失败时的 fail-open 产物（裁判链路故障 ≠ 目标未完成，放行不卡死）。
+fn fail_open_verifier(reason: String) -> agent::goal::GoalVerifierOutput {
+    agent::goal::GoalVerifierOutput {
+        passed: true,
+        reason,
+        next_action: None,
+    }
+}
+
+/// 轮末完成验证器（独立调用、无工具）；provider 失败重试 1 次，仍失败 fail-open 放行。
+async fn run_goal_verifier(
+    goal: &agent::goal::SessionGoal,
+    iterations_done: u32,
+    transcript: &str,
+) -> agent::goal::GoalVerifierOutput {
+    let settings = match kernel::current_settings() {
+        Ok(s) => s,
+        Err(e) => {
+            return fail_open_verifier(format!("验证器无法取得模型配置（fail-open 放行）：{e}"))
+        }
+    };
+    let prompt = agent::goal::format_verification_prompt(
+        &goal.objective,
+        goal.status,
+        iterations_done,
+        &goal.budget,
+        goal.tokens_used,
+        transcript,
+    );
+    let mut last_err = String::new();
+    for _ in 0..2 {
+        match kernel::one_shot_completion(&settings, agent::goal::VERIFIER_PREAMBLE, &prompt).await
+        {
+            Ok(out) => return agent::goal::parse_verifier_output(&out),
+            Err(e) => last_err = e,
+        }
+    }
+    fail_open_verifier(format!("验证器调用失败（fail-open 放行）：{last_err}"))
+}
+
+/// 目标续跑轮执行（goal_loop 与 /goal 恢复共用）：重建 spec/权限/工具上下文跑一轮。
+async fn run_goal_round(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    approval: Option<Arc<agent::approval::ApprovalBroker>>,
+    work_dir: &PathBuf,
+    work_path: &str,
+    session_id: &str,
+    prompt: &str,
+    on_event: &EventSink,
+    on_proposal: &ProposalSink,
+) -> Result<(), String> {
+    let store = SessionStore::Work(work_dir.clone());
+    let spec = chat_spec_for_prompt(prompt, work_dir);
+    let tool_ctx = chat_tool_ctx(
+        queue,
+        approval,
+        work_dir.clone(),
+        work_path.to_string(),
+        session_id,
+        on_event,
+        on_proposal,
+    )?;
+    run_and_save_session(session_id.to_string(), &store, Some(&tool_ctx), &spec, prompt, on_event)
+        .await
+}
+
+/// 轮末验证器循环（R4.5-③）：验证 → 边界判定 → 未过按 nextAction 续跑。
+/// `last_round_prompt` = 刚跑完这一轮发给 agent 的指令（记入迭代档案）。
+/// 并发一致性：轮中直调命令（goal_control）改会话档案，run_and_save_session 保存前
+/// 会重读合并 goal/权限/标题；本循环落库走 mutate_goal 读改写，暂停/清除不会被覆盖。
+async fn goal_loop(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    approval: Option<Arc<agent::approval::ApprovalBroker>>,
+    work_dir: PathBuf,
+    session_id: String,
+    last_round_prompt: String,
+    on_event: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<(), String> {
+    let store = SessionStore::Work(work_dir.clone());
+    let work_path = work_dir.to_string_lossy().to_string();
+    let mut last_round_prompt = last_round_prompt;
+    loop {
+        // 1) 轮末重读（fresh）：并发暂停/清除以磁盘为准
+        let sess = session::load_session(&store, &session_id)?;
+        let Some(goal) = sess.goal.clone() else {
+            return Ok(()); // 已清除
+        };
+        if goal.status != agent::goal::GoalStatus::Active {
+            if goal.status == agent::goal::GoalStatus::Paused {
+                on_event(AgentEvent::GoalUpdate {
+                    goal: goal.view(),
+                });
+                on_event(AgentEvent::Final {
+                    output: "长时目标已暂停：当前轮结束后停止迭代（/goal 恢复 继续）。".to_string(),
+                });
+            }
+            return Ok(());
+        }
+
+        // 2) 完成验证器（独立调用、禁工具）
+        let iterations_done = goal.iterations.len() as u32 + 1;
+        let transcript = agent::goal::render_transcript(&sess.messages, 1200, 20000);
+        let verdict = run_goal_verifier(&goal, iterations_done, &transcript).await;
+
+        // 3) 记录迭代 + 应用边界（读改写：记录保留，状态仅在仍为 Active 时迁移）
+        let tokens = sess
+            .last_usage
+            .map(|u| u.input_tokens + u.output_tokens)
+            .unwrap_or(0);
+        let boundary = agent::goal::boundary_decision(
+            iterations_done,
+            goal.tokens_used + tokens,
+            &goal.budget,
+            &verdict,
+        );
+        let record = agent::goal::GoalIteration {
+            index: iterations_done,
+            prompt: last_round_prompt.clone(),
+            ended_at: Some(works::now_iso()),
+            tokens,
+            verification: Some(verdict.clone()),
+        };
+        let applied: agent::goal::BoundaryApply = session::mutate_goal(&store, &session_id, |g| {
+            Ok(agent::goal::apply_boundary(g, boundary, record, tokens))
+        })?;
+        let fresh_view = session::load_session(&store, &session_id)
+            .ok()
+            .and_then(|s| s.goal.map(|g| g.view()));
+
+        match applied {
+            agent::goal::BoundaryApply::Continue(next_action) => {
+                if let Some(goal) = fresh_view {
+                    on_event(AgentEvent::GoalUpdate { goal });
+                }
+                on_event(AgentEvent::GoalRoundStart {
+                    iteration: iterations_done + 1,
+                    title: next_action.clone(),
+                });
+                last_round_prompt = agent::goal::format_continuation_prompt(
+                    &goal.objective,
+                    iterations_done,
+                    &goal.budget,
+                    goal.tokens_used + tokens,
+                    &verdict.reason,
+                    &next_action,
+                );
+                run_goal_round(
+                    queue,
+                    approval.clone(),
+                    &work_dir,
+                    &work_path,
+                    &session_id,
+                    &last_round_prompt,
+                    &on_event,
+                    &on_proposal,
+                )
+                .await?;
+            }
+            agent::goal::BoundaryApply::Complete => {
+                if let Some(goal) = fresh_view {
+                    on_event(AgentEvent::GoalUpdate { goal });
+                }
+                on_event(AgentEvent::Final {
+                    output: format!("✅ 长时目标已完成\n验证结论：{}", verdict.reason),
+                });
+                return Ok(());
+            }
+            agent::goal::BoundaryApply::BudgetLimited => {
+                if let Some(goal) = fresh_view {
+                    on_event(AgentEvent::GoalUpdate { goal });
+                }
+                let remaining = verdict
+                    .next_action
+                    .as_deref()
+                    .map(|n| format!("\n剩余工作：{n}"))
+                    .unwrap_or_default();
+                on_event(AgentEvent::Final {
+                    output: format!(
+                        "长时目标已达预算上限（轮数 {}/{} 或 token 上限），停止迭代。\n验证结论：{}{remaining}",
+                        iterations_done, goal.budget.max_iterations, verdict.reason
+                    ),
+                });
+                return Ok(());
+            }
+            agent::goal::BoundaryApply::PausedMidFlight => {
+                if let Some(goal) = fresh_view {
+                    on_event(AgentEvent::GoalUpdate { goal });
+                }
+                on_event(AgentEvent::Final {
+                    output: "长时目标已暂停：本轮结果已记录，迭代停止（/goal 恢复 继续）。".to_string(),
+                });
+                return Ok(());
+            }
+            agent::goal::BoundaryApply::Cleared => return Ok(()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -415,8 +730,10 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, AgentEvent::Final { output } if output.contains("暂停状态"))));
 
-            // 恢复 → Active
-            call("/goal 恢复", Arc::clone(&sink)).await.unwrap();
+            // 恢复 → Active（R4.5-③ 起恢复会驱动续跑循环＝LLM 路径，不经 chat_flow 测试；
+            // 状态迁移已由 session::update_goal 单测覆盖，循环行为由 goal_spike/浏览器验收覆盖）
+            session::update_goal(&store, sess_id, agent::goal::GoalControlAction::Resume)
+                .unwrap();
             assert_eq!(
                 session::load_session(&store, sess_id).unwrap().goal.unwrap().status,
                 agent::goal::GoalStatus::Active

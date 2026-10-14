@@ -83,6 +83,47 @@ pub enum GoalBoundary {
     BudgetLimited,
 }
 
+/// 边界结论落库结果（R4.5-③ 迭代循环用）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoundaryApply {
+    Continue(String),
+    Complete,
+    BudgetLimited,
+    /// 轮中目标被并发暂停/终止：迭代记录保留，状态不迁移（以磁盘为准）
+    PausedMidFlight,
+    /// 轮中目标被并发清除（无记录可写）
+    Cleared,
+}
+
+/// 轮末落库：迭代记录 + tokens 累计 + 按边界迁移状态（纯函数）。
+/// 并发一致性：仅当磁盘状态仍为 Active 才迁移状态；被并发暂停时记录保留、状态不动。
+pub fn apply_boundary(
+    goal: &mut Option<SessionGoal>,
+    boundary: GoalBoundary,
+    record: GoalIteration,
+    tokens: u64,
+) -> BoundaryApply {
+    let Some(g) = goal.as_mut() else {
+        return BoundaryApply::Cleared;
+    };
+    g.tokens_used += tokens;
+    g.iterations.push(record);
+    if g.status != GoalStatus::Active {
+        return BoundaryApply::PausedMidFlight;
+    }
+    match boundary {
+        GoalBoundary::Complete => {
+            g.status = GoalStatus::Complete;
+            BoundaryApply::Complete
+        }
+        GoalBoundary::BudgetLimited => {
+            g.status = GoalStatus::BudgetLimited;
+            BoundaryApply::BudgetLimited
+        }
+        GoalBoundary::Continue { next_action } => BoundaryApply::Continue(next_action),
+    }
+}
+
 pub const VERIFICATION_FALLBACK_REASON: &str = "验证器无法确认目标的每项要求都已完成。";
 pub const FAIL_OPEN_REASON: &str = "验证器未返回合法 JSON（fail-open 放行）。";
 
@@ -820,6 +861,56 @@ mod tests {
         assert_eq!(v.status_label, "进行中");
         assert_eq!(v.iterations.len(), 1);
         assert!(v.iterations[0].verification.as_ref().unwrap().reason.contains("第 4 章"));
+    }
+
+    #[test]
+    fn apply_boundary_respects_concurrent_pause_and_clear() {
+        fn rec(index: u32) -> GoalIteration {
+            GoalIteration {
+                index,
+                prompt: "p".into(),
+                ended_at: None,
+                tokens: 10,
+                verification: Some(GoalVerifierOutput {
+                    passed: false,
+                    reason: "缺一章".into(),
+                    next_action: Some("补第 4 章".into()),
+                }),
+            }
+        }
+        let cont = || GoalBoundary::Continue {
+            next_action: "补第 4 章".into(),
+        };
+
+        // Active + Continue：迭代入档、tokens 累计、状态保持 Active
+        let mut g = Some(SessionGoal::new("审校"));
+        let apply = apply_boundary(&mut g, cont(), rec(1), 100);
+        assert_eq!(apply, BoundaryApply::Continue("补第 4 章".into()));
+        let g = g.unwrap();
+        assert_eq!(g.status, GoalStatus::Active);
+        assert_eq!(g.iterations.len(), 1);
+        assert_eq!(g.tokens_used, 100);
+
+        // 并发暂停后（磁盘状态 Paused）：记录保留、状态不迁移 → PausedMidFlight
+        let mut g = Some(SessionGoal::new("审校"));
+        g.as_mut().unwrap().status = GoalStatus::Paused;
+        let apply = apply_boundary(&mut g, GoalBoundary::Complete, rec(1), 100);
+        assert_eq!(apply, BoundaryApply::PausedMidFlight);
+        let g = g.unwrap();
+        assert_eq!(g.status, GoalStatus::Paused, "并发暂停不被循环覆盖");
+        assert_eq!(g.iterations.len(), 1, "本轮结果仍记录");
+
+        // 并发清除：Cleared，不写任何记录
+        let mut g = None;
+        assert_eq!(apply_boundary(&mut g, cont(), rec(1), 100), BoundaryApply::Cleared);
+
+        // Active + Complete/BudgetLimited：状态迁移
+        let mut g = Some(SessionGoal::new("审校"));
+        assert_eq!(
+            apply_boundary(&mut g, GoalBoundary::Complete, rec(1), 0),
+            BoundaryApply::Complete
+        );
+        assert_eq!(g.unwrap().status, GoalStatus::Complete);
     }
 
     #[test]
