@@ -46,8 +46,7 @@ export function Launcher() {
       const work = await api.createWork(name.trim());
       setOpen(false);
       setName("");
-      // R15 开书工作室：新建作品进入工作台即自动开始访谈（Workbench 派发 kickoff:start）
-      navigate("/work", { state: { work, kickoff: true } });
+      navigate("/work", { state: { work } });
     } catch (e) {
       setError(String(e));
     } finally {

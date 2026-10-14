@@ -232,6 +232,19 @@
   font-size: 0.8em;
 }
 
+/* 代码块折叠卡片（用户反馈批）：折叠容器是卡片本体（边框/圆角在组件类上）；
+   内部原生 code-block 去卡化——语言已在自建 header，原生 header 隐藏；
+   原生浮动按钮已由 controls 关闭（上方浮动区规则随之失效，保留无害）。 */
+.md-response [data-collapsible-code] [data-streamdown="code-block"] {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.md-response [data-collapsible-code] [data-streamdown="code-block-header"] {
+  display: none;
+}
+
 /* 制品面板标签条（R5-④：浏览器式标签栏）——横向可滚但隐藏滚动条本体，
    溢出导航交给边缘箭头与滚轮（scrollbar-width/WebKit 双口径） */
 .tabbar-scroll {

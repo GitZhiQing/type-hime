@@ -7,7 +7,8 @@ import { toast } from "sonner";
  * 方案：接管点击 → clipboard API 失败时回退 execCommand('copy') → 统一 toast 反馈。
  */
 
-async function writeClipboard(text: string): Promise<boolean> {
+/** 剪贴板写入（clipboard API 失败时回退 execCommand）；返回是否成功。 */
+export async function writeClipboard(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);

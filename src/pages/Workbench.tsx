@@ -35,8 +35,7 @@ function treeHasPath(node: TreeNode | null, path: string): boolean {
 export function Workbench() {
   const navigate = useNavigate();
   const location = useLocation();
-  const navState = location.state as { work: WorkSummary; kickoff?: boolean } | null;
-  const work = navState?.work;
+  const work = (location.state as { work: WorkSummary } | null)?.work;
 
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [selected, setSelected] = useState<TreeNode | null>(null);
@@ -51,18 +50,6 @@ export function Workbench() {
   const [pendingProposals, setPendingProposals] = useState(0);
 
   const workPath = work?.path ?? "";
-
-  // R15 开书工作室：从「新建作品」进入 → 剥离导航标志（防刷新/重挂载重放）后延迟派发开场事件
-  // （仿 goal:resume 先例，由 ChatPane 以聊天流驱动发送 /开书）。定时器不清理是刻意的：
-  // cleanup 会吞掉 StrictMode 双挂载下唯一一次派发，重放由 ref 守卫 + 标志剥离共同拦住。
-  const kickoffFiredRef = useRef(false);
-  useEffect(() => {
-    if (!work || !navState?.kickoff || kickoffFiredRef.current) return;
-    kickoffFiredRef.current = true;
-    navigate(location.pathname, { replace: true, state: { work } });
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent("kickoff:start")), 300);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [work, navState, navigate, location.pathname]);
 
   /** 新建会话：生成 id、设为当前并返回（R1：会话状态上移到页面层） */
   function createSession() {
@@ -229,6 +216,7 @@ export function Workbench() {
           <ChatPane
             scope="work"
             workPath={workPath}
+            workName={work?.name}
             sessionId={sessionId}
             onNewSession={createSession}
             onTurnDone={() => setSessionRefresh((k) => k + 1)}

@@ -45,6 +45,8 @@ interface ChatProps {
   scope: "work" | "global";
   /** scope=work 时必填 */
   workPath?: string;
+  /** 作品名（R17 欢迎空态标题用；scope=work 传） */
+  workName?: string;
   sessionId: string | null;
   /** 当前无会话时由父层创建并返回新会话 id */
   onNewSession: () => string;
@@ -91,6 +93,7 @@ function flattenTree(node: TreeNode, out: { name: string; path: string }[]) {
 export function ChatPane({
   scope,
   workPath,
+  workName,
   sessionId,
   onNewSession,
   onTurnDone,
@@ -360,17 +363,6 @@ export function ChatPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWork, workPath, sessionId]);
 
-  // R15 开书工作室：新建作品自动开场（Workbench 的 kickoff:start 事件）→ 以 /开书 开启访谈
-  useEffect(() => {
-    const onKickoff = () => {
-      if (!isWork || busyRef.current) return;
-      sendText("/开书");
-    };
-    window.addEventListener("kickoff:start", onKickoff);
-    return () => window.removeEventListener("kickoff:start", onKickoff);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWork, workPath, sessionId]);
-
   // R17 下一步行动条：PLAN 条按钮经 window 事件代发指令（与 chips 同一聊天流出口）
   useEffect(() => {
     const onNext = (e: Event) => {
@@ -595,6 +587,16 @@ export function ChatPane({
     }
   }
 
+  /** R17：spawn_agent 内联序号——第 k 个全局 spawn ↔ subtasks[k]
+   *（subtask 事件晚于工具调用到达，未到时回退运行中的工具卡，平滑过渡） */
+  const roundsSpawnSeq: (number | null)[][] = [];
+  let spawnSeq = 0;
+  for (const r of rounds) {
+    roundsSpawnSeq.push(
+      r.state.toolCalls.map((t) => (t.name === "spawn_agent" ? spawnSeq++ : null)),
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <Conversation>
@@ -635,13 +637,18 @@ export function ChatPane({
                     {r.title}
                   </div>
                 )}
-                {/* R9-③：流式期 spawn_agent 的过程由子 Agent 运行卡承载，主流不重复渲染其工具卡
-                    （历史消息仍保留，便于重载后回看调用参数与返回摘要） */}
-                {r.state.toolCalls
-                  .filter((t) => t.name !== "spawn_agent")
-                  .map((t, i) => (
+                {/* R9-③：流式期 spawn_agent 的过程由子 Agent 运行卡承载（内联到调用位，
+                    R17 间距统一：与普通工具卡同处一个 gap-1.5 流；历史消息仍保留工具卡形态） */}
+                {r.state.toolCalls.map((t, i) => {
+                  if (t.name !== "spawn_agent") return <ToolCallCard key={i} call={t} />;
+                  const seq = roundsSpawnSeq[ri][i];
+                  const task = seq != null ? subtasks[seq] : undefined;
+                  return task ? (
+                    <TaskCard key={`spawn-${i}`} task={task} />
+                  ) : (
                     <ToolCallCard key={i} call={t} />
-                  ))}
+                  );
+                })}
                 {(r.state.text.trim() !== "" || isLast) && (
                   <Message from="assistant">
                     <MessageContent pulsing={isLast}>
@@ -652,13 +659,6 @@ export function ChatPane({
               </div>
             );
           })}
-          {subtasks.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {subtasks.map((t) => (
-                <TaskCard key={t.id} task={t} />
-              ))}
-            </div>
-          )}
           {issueNotice && (
             <button
               type="button"
@@ -717,18 +717,38 @@ export function ChatPane({
                 busy
                   ? "连接模型…"
                   : isWork
-                    ? "向写作助手提问"
+                    ? workName
+                      ? `欢迎来到《${workName}》`
+                      : "向写作助手提问"
                     : "找灵感、头脑风暴、写作问答（无作品上下文）"
               }
               description={
                 busy
                   ? undefined
                   : isWork
-                    ? "设定推演 / 情节排查 / 头脑风暴；用 / 调技能、@ 引用素材"
+                    ? "从下面的行动开始，或直接对话；用 / 调技能、@ 引用素材"
                     : undefined
               }
               icon={busy ? <Loader2 className="size-5 animate-spin" /> : undefined}
-            />
+            >
+              {/* R17 欢迎空态：行动按钮（新作品=开始访谈；进行中=下一步行动），点击与 chips 同源 */}
+              {isWork && !busy && chips && chips.length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                  {chips.slice(0, 3).map((a, i) => (
+                    <Button
+                      key={a.id}
+                      size="sm"
+                      variant={i === 0 ? "default" : "outline"}
+                      onClick={() =>
+                        a.kind === "send" ? sendText(a.text) : runNextAction(a)
+                      }
+                    >
+                      {a.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </ConversationEmptyState>
           )}
         </ConversationContent>
         <ConversationScrollButton />
@@ -736,22 +756,27 @@ export function ChatPane({
 
       {planSlot && <div className="shrink-0 border-t">{planSlot}</div>}
       <div className="shrink-0 border-t p-2">
-        {/* R17 下一步行动 chips：主行动+备选直达（命令成为快捷方式而非必经路径） */}
-        {isWork && !busy && chips && chips.length > 0 && (
-          <div className="tabbar-scroll mb-1.5 flex gap-1 overflow-x-auto pb-0.5">
-            {chips.map((a) => (
-              <Button
-                key={a.id}
-                variant="outline"
-                size="sm"
-                className="h-6 shrink-0 rounded-full px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
-                onClick={() => (a.kind === "send" ? sendText(a.text) : runNextAction(a))}
-              >
-                {a.label}
-              </Button>
-            ))}
-          </div>
-        )}
+        {/* R17 下一步行动 chips：主行动+备选直达（命令成为快捷方式而非必经路径）；
+            空态由欢迎卡的行动按钮承载，此处不重复渲染 */}
+        {isWork &&
+          !busy &&
+          chips &&
+          chips.length > 0 &&
+          (messages.length > 0 || rounds.length > 0) && (
+            <div className="tabbar-scroll mb-1.5 flex gap-1 overflow-x-auto pb-0.5">
+              {chips.map((a) => (
+                <Button
+                  key={a.id}
+                  variant="outline"
+                  size="sm"
+                  className="h-6 shrink-0 rounded-full px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
+                  onClick={() => (a.kind === "send" ? sendText(a.text) : runNextAction(a))}
+                >
+                  {a.label}
+                </Button>
+              ))}
+            </div>
+          )}
         <PromptInput
           value={input}
           setValue={(v) => {
