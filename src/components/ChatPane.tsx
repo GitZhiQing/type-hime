@@ -119,6 +119,10 @@ export function ChatPane({
   /** 轮次计数（R10：一轮完成 +1，驱动输入框下方上下文用量刷新） */
   const [turnKey, setTurnKey] = useState(0);
   const busyRef = useRef(false);
+  /** 委派上下文登记（D49）：spawn_agent 调用参数按序缓存，SubTaskStart 按序配对
+   *  → delegation:new 事件 → 制品栏委派标签页（写作上下文可见） */
+  const spawnCallsRef = useRef<{ prompt: string | null }[]>([]);
+  const subtaskSeqRef = useRef(0);
 
   const isWork = scope === "work" && !!workPath;
 
@@ -313,6 +317,8 @@ export function ChatPane({
     setInlineProposals([]);
     setApprovals([]);
     setSubtasks([]);
+    spawnCallsRef.current = [];
+    subtaskSeqRef.current = 0;
     setIssueNotice(null);
     busyRef.current = true;
 
@@ -376,6 +382,17 @@ export function ChatPane({
   }, [isWork, workPath, sessionId]);
 
   function handleStreamEvent(ev: AgentEvent) {
+    // D49：spawn_agent 调用参数按序缓存（与 SubTaskStart 按序配对）
+    if (ev.type === "tool_call" && ev.name === "spawn_agent") {
+      let prompt: string | null = null;
+      try {
+        const o = JSON.parse(ev.args) as { prompt?: unknown };
+        if (typeof o.prompt === "string") prompt = o.prompt;
+      } catch {
+        /* 参数非 JSON 时无上下文可展示 */
+      }
+      spawnCallsRef.current.push({ prompt });
+    }
     // 审批事件（R4）：卡片状态机独立于流式消息区
     if (ev.type === "approval_request") {
       setApprovals((list) => [
@@ -398,6 +415,18 @@ export function ChatPane({
         ),
       );
     } else if (ev.type === "sub_task_start") {
+      // D49：委派上下文 → 制品栏标签（第 k 个 SubTaskStart ↔ 第 k 个 spawn_agent 调用）
+      const spawn = spawnCallsRef.current[subtaskSeqRef.current++] ?? null;
+      window.dispatchEvent(
+        new CustomEvent("delegation:new", {
+          detail: {
+            id: ev.id,
+            agent: ev.agent ?? null,
+            label: ev.label,
+            prompt: spawn?.prompt ?? null,
+          },
+        }),
+      );
       setSubtasks((list) => [
         ...list,
         {
@@ -651,13 +680,23 @@ export function ChatPane({
                   </div>
                 )}
                 {/* R9-③：流式期 spawn_agent 的过程由子 Agent 运行卡承载（内联到调用位，
-                    R17 间距统一：与普通工具卡同处一个 gap-1.5 流；历史消息仍保留工具卡形态） */}
+                    R17 间距统一：与普通工具卡同处一个 gap-1.5 流；历史消息仍保留工具卡形态）。
+                    D49：把委派 prompt 传给运行卡——写作上下文（根 Agent 装配）可见清晰 */}
                 {r.state.toolCalls.map((t, i) => {
                   if (t.name !== "spawn_agent") return <ToolCallCard key={i} call={t} />;
                   const seq = roundsSpawnSeq[ri][i];
                   const task = seq != null ? subtasks[seq] : undefined;
+                  const spawnPrompt = (() => {
+                    if (!task) return null;
+                    try {
+                      const o = JSON.parse(t.args) as { prompt?: unknown };
+                      return typeof o.prompt === "string" ? o.prompt : null;
+                    } catch {
+                      return null;
+                    }
+                  })();
                   return task ? (
-                    <TaskCard key={`spawn-${i}`} task={task} />
+                    <TaskCard key={`spawn-${i}`} task={task} prompt={spawnPrompt} />
                   ) : (
                     <ToolCallCard key={i} call={t} />
                   );

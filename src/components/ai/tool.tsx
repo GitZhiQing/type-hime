@@ -148,18 +148,22 @@ export function ToolCallCard({ call, className }: ToolCallCardProps) {
             <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
               参数
             </div>
-            <div className="space-y-0.5">
-              {entries.map((e) => (
-                <div key={e.key} className="flex gap-2 text-[11px]">
-                  <span className="shrink-0 font-mono text-muted-foreground">{e.key}</span>
-                  {e.note ? (
-                    <span className="text-muted-foreground/70 italic">{e.note}</span>
-                  ) : (
-                    <span className="min-w-0 break-all whitespace-pre-wrap">{e.value}</span>
-                  )}
-                </div>
-              ))}
-            </div>
+            {call.name === "spawn_agent" ? (
+              <SpawnAgentArgs args={call.args} />
+            ) : (
+              <div className="space-y-0.5">
+                {entries.map((e) => (
+                  <div key={e.key} className="flex gap-2 text-[11px]">
+                    <span className="shrink-0 font-mono text-muted-foreground">{e.key}</span>
+                    {e.note ? (
+                      <span className="text-muted-foreground/70 italic">{e.note}</span>
+                    ) : (
+                      <span className="min-w-0 break-all whitespace-pre-wrap">{e.value}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {!running && (
             <div>
@@ -188,6 +192,48 @@ function prettyResult(result: string | null): string {
   const parsed = safeParse(result);
   if (typeof parsed === "string") return parsed;
   return JSON.stringify(parsed, null, 2);
+}
+
+/**
+ * spawn_agent 参数可读化（D49）：委派 prompt 就是子 Agent 收到的全部上下文，
+ * 不再以截断 JSON 键值展示——短字段照常键值行，prompt 单独成可读块（限高滚动）。
+ */
+export function SpawnAgentArgs({ args }: { args: string }) {
+  const parsed = safeParse(args);
+  const o =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
+  const rows: [string, string][] = [];
+  for (const key of ["subagent", "description"]) {
+    const v = o[key];
+    if (typeof v === "string" && v) rows.push([key, v]);
+  }
+  const prompt = typeof o.prompt === "string" ? o.prompt : "";
+  return (
+    <div className="space-y-1.5">
+      {rows.length > 0 && (
+        <div className="space-y-0.5">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex gap-2 text-[11px]">
+              <span className="shrink-0 font-mono text-muted-foreground">{k}</span>
+              <span className="min-w-0 break-all">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {prompt && (
+        <div>
+          <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground">
+            委派指令（子 Agent 收到的全部上下文）
+          </div>
+          <div className="max-h-64 overflow-auto rounded-sm bg-muted/50 p-1.5">
+            <Code pre={prompt} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** 轻量代码块 */

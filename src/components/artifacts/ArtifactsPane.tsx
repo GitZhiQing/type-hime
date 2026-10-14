@@ -16,12 +16,12 @@ import {
 import { cn } from "cn";
 import {
   BookOpen,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
   GitBranch,
-  Layers,
   ListChecks,
   Plus,
   ScrollText,
@@ -36,7 +36,7 @@ import { LedgerView } from "@/components/artifacts/LedgerView";
 import { UsageView } from "@/components/artifacts/UsageView";
 import { GitView } from "@/components/artifacts/GitView";
 import { SkillsView } from "@/components/artifacts/SkillsView";
-import { AssemblyPane } from "@/components/AssemblyPane";
+import { SubagentView } from "@/components/artifacts/SubagentView";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -57,18 +57,28 @@ export type ArtifactKind =
   | "review"
   | "issues"
   | "ledger"
-  | "assembly"
   | "usage"
   | "git"
-  | "skills";
+  | "skills"
+  /** 委派上下文（D49：每次 spawn_agent 一个标签，会话级不持久化） */
+  | "subagent";
+
+export interface DelegationPayload {
+  id: string;
+  agent?: string | null;
+  label: string;
+  prompt?: string | null;
+}
 
 export interface ArtifactTab {
-  /** 唯一 id：doc 用 `doc:<path>`，其余用 kind */
+  /** 唯一 id：doc 用 `doc:<path>`，subagent 用 `sub:<taskId>`，其余用 kind */
   id: string;
   kind: ArtifactKind;
   title: string;
   /** kind=doc 的文件相对路径 */
   path?: string;
+  /** kind=subagent 的委派数据（会话级，不入 localStorage） */
+  payload?: DelegationPayload;
 }
 
 interface ArtifactsPaneProps {
@@ -86,7 +96,7 @@ interface ArtifactsPaneProps {
   refreshKey?: number;
 }
 
-/** 单例制品（同类只开一个标签） */
+/** 单例制品（同类只开一个标签）；装配预览已退役（R8 起根 Agent 装配委派上下文，D49） */
 const SINGLETONS: {
   kind: ArtifactKind;
   title: string;
@@ -95,11 +105,13 @@ const SINGLETONS: {
   { kind: "review", title: "审阅", icon: <FileText className="size-3" /> },
   { kind: "issues", title: "问题清单", icon: <ListChecks className="size-3" /> },
   { kind: "ledger", title: "账本", icon: <ScrollText className="size-3" /> },
-  { kind: "assembly", title: "装配", icon: <Layers className="size-3" /> },
   { kind: "usage", title: "成本", icon: <Wallet className="size-3" /> },
   { kind: "git", title: "git 历史", icon: <GitBranch className="size-3" /> },
   { kind: "skills", title: "技能文档", icon: <Settings2 className="size-3" /> },
 ];
+
+/** 持久化里已知 kind 的白名单（装配退役后清残留 tab 用） */
+const KNOWN_KINDS = new Set<ArtifactKind>(["doc", ...SINGLETONS.map((s) => s.kind)]);
 
 function storageKey(workPath: string) {
   return `type-hime-artifacts:${workPath}`;
@@ -118,7 +130,16 @@ function loadTabs(workPath: string): { tabs: ArtifactTab[]; activeId: string } {
     const raw = localStorage.getItem(storageKey(workPath));
     if (raw) {
       const parsed = JSON.parse(raw) as { tabs: ArtifactTab[]; activeId: string };
-      if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) return parsed;
+      // 过滤已退役/未知 kind 的残留标签（如「装配」），activeId 失效则回落首个
+      const tabs = Array.isArray(parsed.tabs)
+        ? parsed.tabs.filter((t) => KNOWN_KINDS.has(t.kind))
+        : [];
+      if (tabs.length > 0) {
+        const activeId = tabs.some((t) => t.id === parsed.activeId)
+          ? parsed.activeId
+          : tabs[0].id;
+        return { tabs, activeId };
+      }
     }
   } catch {
     /* 损坏即回落默认 */
@@ -155,13 +176,38 @@ export function ArtifactsPane({
     (next: { tabs: ArtifactTab[]; activeId: string }) => {
       setTabState(next);
       try {
-        localStorage.setItem(storageKey(workPath), JSON.stringify(next));
+        // 委派标签是会话级数据（payload 不持久化），落盘前剔除
+        const storable = next.tabs.filter((t) => t.kind !== "subagent");
+        localStorage.setItem(
+          storageKey(workPath),
+          JSON.stringify({ tabs: storable, activeId: storable.some((t) => t.id === next.activeId) ? next.activeId : (storable[0]?.id ?? "") }),
+        );
       } catch {
         /* 配额满等持久化失败不阻塞 UI */
       }
     },
     [workPath],
   );
+
+  // 委派上下文标签（D49）：ChatPane 在 SubTaskStart 时按序配对 spawn_agent 的委派 prompt
+  // 并派发 delegation:new——此处登记为制品标签（不抢当前激活）。
+  useEffect(() => {
+    const onDelegation = (e: Event) => {
+      const d = (e as CustomEvent<DelegationPayload>).detail;
+      if (!d?.id) return;
+      setTabState((cur) => {
+        const tabId = `sub:${d.id}`;
+        if (cur.tabs.some((t) => t.id === tabId)) return cur;
+        const title = `${d.agent ?? "子Agent"}·${d.label.slice(0, 10)}`;
+        return {
+          tabs: [...cur.tabs, { id: tabId, kind: "subagent", title, payload: d }],
+          activeId: cur.activeId,
+        };
+      });
+    };
+    window.addEventListener("delegation:new", onDelegation);
+    return () => window.removeEventListener("delegation:new", onDelegation);
+  }, []);
 
   function closeTab(id: string) {
     const idx = tabs.findIndex((t) => t.id === id);
@@ -504,17 +550,17 @@ export function ArtifactsPane({
           <DropdownMenuContent align="end">
             <DropdownMenuGroup>
               <DropdownMenuLabel>打开制品</DropdownMenuLabel>
-              {SINGLETONS.map((s) => (
-                <DropdownMenuItem
-                  key={s.kind}
-                  disabled={tabs.some((t) => t.kind === s.kind)}
-                  onClick={() => openSingleton(s.kind)}
-                >
-                  {s.icon}
-                  {s.title}
-                  {tabs.some((t) => t.kind === s.kind) && "（已打开）"}
-                </DropdownMenuItem>
-              ))}
+              {SINGLETONS.map((s) => {
+                const opened = tabs.some((t) => t.kind === s.kind);
+                return (
+                  <DropdownMenuItem key={s.kind} onClick={() => openSingleton(s.kind)}>
+                    {s.icon}
+                    {s.title}
+                    {/* 已打开用勾选标识（用户反馈：不用「（已打开）」文字标注）；点击直达激活 */}
+                    {opened && <Check className="ml-auto size-3 text-muted-foreground" />}
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
@@ -549,14 +595,14 @@ export function ArtifactsPane({
           <IssuesView workPath={workPath} refreshKey={refreshKey} />
         ) : active.kind === "ledger" ? (
           <LedgerView workPath={workPath} />
-        ) : active.kind === "assembly" ? (
-          <AssemblyPane workPath={workPath} />
         ) : active.kind === "usage" ? (
           <UsageView workPath={workPath} refreshKey={refreshKey} />
         ) : active.kind === "git" ? (
           <GitView workPath={workPath} />
         ) : active.kind === "skills" ? (
           <SkillsView workPath={workPath} />
+        ) : active.kind === "subagent" ? (
+          <SubagentView payload={active.payload} />
         ) : (
           <Placeholder label={`${active.title}视图（未知类型）`} />
         )}

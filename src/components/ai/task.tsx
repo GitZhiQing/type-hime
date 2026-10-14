@@ -42,10 +42,12 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-export function TaskCard({ task }: { task: TaskView }) {
+export function TaskCard({ task, prompt }: { task: TaskView; prompt?: string | null }) {
   const [open, setOpen] = useState(task.status === "running");
   /** 展开查看详情的工具行（按轨迹索引；R9-③） */
   const [detailIdx, setDetailIdx] = useState<number | null>(null);
+  /** 委派指令全文（D49：根 Agent 装配的上下文，默认收起） */
+  const [showPrompt, setShowPrompt] = useState(false);
 
   // 完成后自动收起为摘要行（运行中保持展开看过程）
   useEffect(() => {
@@ -117,6 +119,31 @@ export function TaskCard({ task }: { task: TaskView }) {
 
       {open && (
         <div className="flex flex-col gap-2 border-t px-3 py-2">
+          {prompt && (
+            <div className="rounded border bg-background/60">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-2 py-1 text-left text-[11px]"
+                onClick={() => setShowPrompt((v) => !v)}
+                aria-expanded={showPrompt}
+              >
+                <span className="shrink-0 font-medium text-foreground/80">委派指令</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                  根 Agent 装配给本子 Agent 的全部上下文（{prompt.length} 字）
+                </span>
+                {showPrompt ? (
+                  <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
+                ) : (
+                  <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
+                )}
+              </button>
+              {showPrompt && (
+                <pre className="max-h-72 overflow-auto border-t px-2 py-1.5 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap text-muted-foreground">
+                  {prompt}
+                </pre>
+              )}
+            </div>
+          )}
           {task.text.trim() && (
             <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded bg-background p-2 font-sans text-[12px] leading-relaxed text-muted-foreground">
               {task.text}
