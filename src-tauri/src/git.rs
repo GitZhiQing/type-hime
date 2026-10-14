@@ -21,7 +21,7 @@ fn run_git(dir: &Path, args: &[&str]) -> Result<String, String> {
 /// 在 dir 下初始化仓库并设置仓库级身份（不依赖全局 git config）。
 pub fn init_repo(dir: &Path) -> Result<(), String> {
     run_git(dir, &["init"])?;
-    run_git(dir, &["config", "user.name", "type-hime"])?;
+    run_git(dir, &["config", "user.name", "码字姬"])?;
     run_git(dir, &["config", "user.email", "type-hime@local"])?;
     run_git(dir, &["config", "core.quotepath", "false"])?; // 中文文件名原样显示
     Ok(())

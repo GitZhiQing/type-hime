@@ -263,9 +263,9 @@ export function EditorPane({ workPath, relPath }: EditorProps) {
           </div>
         ) : relPath && isMd && mode === "preview" ? (
           <ScrollArea className="min-h-0 flex-1">
-            {/* pt 为悬浮药丸留出上边距，避免首行被遮 */}
+            {/* pt 为悬浮药丸留出上边距，避免首行被遮；正文预览走衬线（D58 书香） */}
             <div className="mx-auto max-w-3xl px-6 pt-11 pb-4">
-              <MessageResponse className="text-[13px]">{content}</MessageResponse>
+              <MessageResponse className="font-serif text-[13px]">{content}</MessageResponse>
             </div>
           </ScrollArea>
         ) : relPath ? (
@@ -274,7 +274,9 @@ export function EditorPane({ workPath, relPath }: EditorProps) {
             onChange={(e) => setContent(e.currentTarget.value)}
             spellCheck={false}
             className={cn(
-              "flex-1 resize-none rounded-none border-0 font-mono text-[13px] leading-relaxed focus-visible:ring-0",
+              "flex-1 resize-none rounded-none border-0 text-[13px] leading-relaxed focus-visible:ring-0",
+              // md 正文用衬线书写（书香），配置文件类保留等宽
+              isMd ? "font-serif" : "font-mono",
               isMd && "pt-11",
             )}
           />

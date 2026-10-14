@@ -83,7 +83,7 @@ function BookCard({
           />
           <span className="absolute inset-y-0.5 right-0.5 w-[3px] rounded-full bg-white/15" />
           {/* 书名：竖排（中文书封惯例），自右上起排 */}
-          <span className="absolute top-2.5 right-3 bottom-2.5 max-h-[calc(100%-1.25rem)] overflow-hidden text-sm leading-relaxed font-medium tracking-wider text-white/90 [writing-mode:vertical-rl]">
+          <span className="absolute top-2.5 right-3 bottom-2.5 max-h-[calc(100%-1.25rem)] overflow-hidden font-serif text-base leading-relaxed tracking-wider text-white/90 [writing-mode:vertical-rl]">
             {work.name}
           </span>
         </div>
@@ -224,7 +224,7 @@ export function Launcher() {
     <div className="h-full overflow-y-auto bg-background">
       <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6 px-8 py-10">
         <div className="flex flex-col items-center gap-2">
-          <h1 className="text-2xl font-bold tracking-wide">type-hime</h1>
+          <h1 className="font-serif text-3xl tracking-[0.18em]">码字姬</h1>
           <p className="text-sm text-muted-foreground">
             AI 辅助中文网文长篇写作工作台
           </p>

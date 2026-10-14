@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "type-hime",
+        "title": "码字姬",
         "width": 1440,
         "height": 900,
         "minWidth": 1024,

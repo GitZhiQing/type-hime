@@ -29,7 +29,7 @@ import {
  */
 
 const DEFAULT_BODY =
-  "你是 type-hime 的子 Agent。\n\n职责：\n- （描述这个子 Agent 做什么、遵循什么规程）\n\n要求：\n- 一切作品文件修改走 propose_edit / propose_write 提议；\n- 结论与清单写在最终回复里（根 Agent 只读你的文本）。";
+  "你是码字姬的子 Agent。\n\n职责：\n- （描述这个子 Agent 做什么、遵循什么规程）\n\n要求：\n- 一切作品文件修改走 propose_edit / propose_write 提议；\n- 结论与清单写在最终回复里（根 Agent 只读你的文本）。";
 
 function emptyProfile(): AgentProfile {
   return {

@@ -330,7 +330,7 @@ mod tests {
         // chat spec 默认挂 writer-basics（R4-④）：身份节 + 技能节
         let spec = super::super::spec::chat_spec();
         let p = build_preamble(&spec, None);
-        assert!(p.contains("执笔公主"));
+        assert!(p.contains("码字姬"));
         assert!(p.contains("# 技能指令"));
         assert!(p.contains("## 技能：writer-basics"));
 

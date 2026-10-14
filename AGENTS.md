@@ -75,7 +75,7 @@ examples/        chat_smoke / full_flow / mvp_flow / write_book / regression / g
 - Tailwind v4 不扫描 node_modules：第三方组件（e.g. streamdown）的效用类不会生成 CSS——用 @source 显式纳入或写作用域 CSS（曾致复制按钮 pointer-events 失效、物理不可点；同类：streamdown shiki token 只给 --sdm-c/--shiki-dark 变量、应用规则缺，已在 index.css 补——第三方组件样式缺失先查此坑家族）。
 - 交互验证必须用真实事件：合成 el.click() 绕过浏览器命中测试会产生假阳性；原生弹层（select/confirm/dialog）在嵌入环境定位不可控，统一用 shadcn 组件（ui/select、Dialog 等，Select 弹层 alignItemWithTrigger=false 标准下方展开）。
 - 装节点（菜单/弹层类）必须真实点开验收：base-ui 的 DropdownMenuLabel 必须包在 DropdownMenuGroup 内（否则展开即白屏 MenuGroupContext is missing，快照看不出）；Playwright 定位点击不可达时，先用 elementFromPoint 核对命中再走坐标级真实点击（cua.click）。
-- cargo 构建/测试前先停 webapi（运行中会锁 target/debug/examples/webapi.exe 致 link 失败）：netstat 找 PID → taskkill → 构建 → 重新拉起。
+- cargo 构建/测试前先停 webapi（运行中会锁 target/debug/examples/webapi.exe 致 link 失败）：netstat 找 PID → taskkill → 构建 → 重新拉起；仅跑库测试用 `cargo test --lib` 可避开该锁。
 - 布局溢出两坑（R5 两次踩中）：flex-col 容器内子视图 h-full 按容器全高解析（含工具条时视图整体高一条）——内容区套 min-h-0 flex-1 包裹层；overflow-x-auto 会把 overflow-y 的 visible 计算为 auto，横向溢出连带出竖向滚动条——标签条类用隐藏滚动条（.tabbar-scroll）+ 滚轮/箭头/列表下拉导航。
 - React setState updater 必须纯函数：浅拷贝数组后原地改元素对象（`arr[i].state = ...`）在 dev StrictMode 双调用下会重复累加（曾致并行双卡时流式文本逐词双倍，流结束全量替换后恢复——症状迷惑性强，先查 updater 纯度）。
 - 内嵌浏览器（IAB）会陷入"渲染进程半故障"态：DOM 查询正常但截图残缺/点击 actionability 超时/坐标点击无反应；刷新无效，**关闭标签重开**即恢复（本会话两次踩中）。遇"元素存在但点不动"先怀疑它，别改代码。
