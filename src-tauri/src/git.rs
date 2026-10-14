@@ -45,6 +45,20 @@ pub fn log_oneline(dir: &Path, limit: usize) -> Result<Vec<String>, String> {
     Ok(out.lines().map(|l| l.to_string()).collect())
 }
 
+/// 单提交完整补丁（R5 制品面板 git 历史标签：点击提交查看 diff）。
+/// hash 只允许十六进制（防参数注入）；输出超 200KB 截断（章节全量补丁防护）。
+pub fn show_commit(dir: &Path, hash: &str) -> Result<String, String> {
+    if hash.is_empty() || hash.len() > 40 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("非法提交号：{hash}"));
+    }
+    let out = run_git(dir, &["show", "--format=medium", hash])?;
+    let mut truncated = out;
+    if truncated.len() > 200_000 {
+        truncated = truncated.chars().take(60_000).collect::<String>() + "\n…（diff 过长已截断）";
+    }
+    Ok(truncated)
+}
+
 /// 恢复文件：找到最近一次删除该文件的提交，从其父提交恢复；
 /// 若删除未入历史（工作区删除未提交），则从 HEAD 恢复。
 pub fn restore_file(dir: &Path, rel_path: &str) -> Result<(), String> {
@@ -75,6 +89,14 @@ mod tests {
         std::fs::write(dir.join("章一.md"), "第一章内容").unwrap();
         commit_all(&dir, "初始提交").unwrap();
         assert!(!log_oneline(&dir, 5).unwrap().is_empty());
+
+        // 单提交查看（R5）：取 oneline 首个 hash，show 出补丁
+        let line = log_oneline(&dir, 1).unwrap().remove(0);
+        let hash = line.split_whitespace().next().unwrap().to_string();
+        let patch = show_commit(&dir, &hash).unwrap();
+        assert!(patch.contains("初始提交"), "{patch}");
+        assert!(patch.contains("章一.md"), "{patch}");
+        assert!(show_commit(&dir, "rm -rf").is_err(), "非十六进制被拒");
 
         // 删除后恢复
         std::fs::remove_file(dir.join("章一.md")).unwrap();

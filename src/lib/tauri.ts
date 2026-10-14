@@ -257,6 +257,12 @@ export interface SkillMeta {
   overridden: boolean;
 }
 
+/** 技能原始 md（R5-② 技能文档视图；source=work 为作品级覆盖） */
+export interface SkillRaw {
+  content: string;
+  source: "builtin" | "work";
+}
+
 export interface MessageView {
   role: string;
   text: string;
@@ -303,10 +309,19 @@ export interface SettingMeta {
   path: string;
 }
 
+/** 账本条目（R5-② 结构化视图；与 Rust LedgerEntry 对应） */
+export interface LedgerEntry {
+  title: string;
+  body: string;
+  /** 最近更新章号（从 body 的 ch-00N 标注提取；null=未标注） */
+  last_touched: number | null;
+}
+
 export interface Ledger {
-  characters: string[];
-  facts: string[];
-  foreshadows: string[];
+  characters: LedgerEntry[];
+  facts: LedgerEntry[];
+  foreshadows: LedgerEntry[];
+  timeline: LedgerEntry[];
 }
 
 export interface Proposal {
@@ -477,6 +492,14 @@ export const api = {
     call<SessionGoalView | null>("get_session_goal", { workPath, sessionId }),
   goalControl: (workPath: string, sessionId: string, action: "pause" | "clear") =>
     call<SessionGoalView | null>("goal_control", { workPath, sessionId, action }),
+
+  // 制品面板（R5-②：git 单提交 diff + 技能文档读写）
+  gitShow: (workPath: string, hash: string) =>
+    call<string>("git_show", { workPath, hash }),
+  readSkill: (workPath: string, name: string) =>
+    call<SkillRaw>("read_skill", { workPath, name }),
+  writeSkill: (workPath: string, name: string, content: string) =>
+    call<void>("write_skill", { workPath, name, content }),
 
   // 装配
   previewAssembly: (

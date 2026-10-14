@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Save, Loader2, FilePlus2, EyeOff, Eye } from "lucide-react";
+import { Save, Loader2, FilePlus2, EyeOff, Eye, Pencil } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { MessageResponse } from "@/components/ai/response";
 import { toast } from "sonner";
 
 interface EditorProps {
@@ -22,6 +24,14 @@ interface EditorProps {
   /** 当前打开的文件相对路径，null 为空 */
   relPath: string | null;
   onFileCreated: () => void;
+}
+
+/** 编辑/预览分段按钮样式（激活态反色） */
+function cnEditBtn(active: boolean): string {
+  return [
+    "flex items-center px-2 py-1 transition-colors",
+    active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60",
+  ].join(" ");
 }
 
 export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
@@ -34,8 +44,16 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
   const [error, setError] = useState("");
   const [settingHidden, setSettingHidden] = useState(false);
   const [settingOpenAt, setSettingOpenAt] = useState<string>("");
+  /** md 文件的编辑/预览模式（R5-②：制品栏 markdown 渲染） */
+  const [mode, setMode] = useState<"edit" | "preview">("edit");
 
   const isSetting = relPath?.startsWith("settings/") ?? false;
+  const isMd = relPath?.endsWith(".md") ?? false;
+
+  // 切换文件回编辑模式
+  useEffect(() => {
+    setMode("edit");
+  }, [relPath]);
 
   useEffect(() => {
     if (!relPath) {
@@ -127,6 +145,28 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
+          {isMd && relPath && (
+            <span className="flex overflow-hidden rounded-md border text-xs">
+              <button
+                type="button"
+                aria-label="编辑模式"
+                className={cnEditBtn(mode === "edit")}
+                onClick={() => setMode("edit")}
+              >
+                <Pencil data-icon="inline-start" />
+                编辑
+              </button>
+              <button
+                type="button"
+                aria-label="预览模式"
+                className={cnEditBtn(mode === "preview")}
+                onClick={() => setMode("preview")}
+              >
+                <Eye data-icon="inline-start" />
+                预览
+              </button>
+            </span>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -218,6 +258,12 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <Loader2 className="mr-2 size-4 animate-spin" /> 读取中…
         </div>
+      ) : relPath && isMd && mode === "preview" ? (
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="mx-auto max-w-3xl px-6 py-4">
+            <MessageResponse className="text-[13px]">{content}</MessageResponse>
+          </div>
+        </ScrollArea>
       ) : relPath ? (
         <Textarea
           value={content}

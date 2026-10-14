@@ -409,6 +409,30 @@ fn set_permission_config(
     pipeline::save_permission_config(&PathBuf::from(work_path), &cfg)
 }
 
+// ---------------------------------------------------------------------------
+// 制品面板（R5-②）：git 单提交 diff + 技能文档读写
+
+/// 单提交完整补丁（git 历史标签：点击提交查看 diff）。
+#[tauri::command]
+fn git_show(work_path: String, hash: String) -> Result<String, String> {
+    git::show_commit(&PathBuf::from(work_path), &hash)
+}
+
+/// 读取技能原始 md（作品层覆盖优先，回落内置层）。
+#[tauri::command]
+fn read_skill(work_path: String, name: String) -> Result<agent::skills::SkillRaw, String> {
+    let dir = PathBuf::from(work_path);
+    agent::skills::read_skill_raw(Some(&dir), &name)
+        .map(|(content, source)| agent::skills::SkillRaw { content, source })
+        .ok_or_else(|| format!("技能 {name} 不存在"))
+}
+
+/// 保存技能（人类直写通道，落作品级 skills/<name>.md 并 git 留痕；内置技能即创建覆盖）。
+#[tauri::command]
+fn write_skill(work_path: String, name: String, content: String) -> Result<(), String> {
+    agent::skills::write_skill_file(&PathBuf::from(work_path), &name, &content)
+}
+
 #[tauri::command]
 async fn chat_stream(
     app: AppHandle,
@@ -750,6 +774,9 @@ pub fn run() {
             set_permission_config,
             get_session_goal,
             goal_control,
+            git_show,
+            read_skill,
+            write_skill,
             chat_stream,
             chat_stream_global,
             decide_approval,

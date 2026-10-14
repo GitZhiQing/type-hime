@@ -28,6 +28,11 @@ import {
 } from "lucide-react";
 import { DocView } from "@/components/artifacts/DocView";
 import { DiffPane } from "@/components/DiffPane";
+import { IssuesView } from "@/components/artifacts/IssuesView";
+import { LedgerView } from "@/components/artifacts/LedgerView";
+import { UsageView } from "@/components/artifacts/UsageView";
+import { GitView } from "@/components/artifacts/GitView";
+import { SkillsView } from "@/components/artifacts/SkillsView";
 
 /**
  * 制品面板（R5-① · REDESIGN §5.2/§5.5）：VS Code 式多标签组。
@@ -127,6 +132,7 @@ export function ArtifactsPane({
   onSelectFile,
   onFileAction,
   onTreeChanged,
+  refreshKey = 0,
 }: ArtifactsPaneProps) {
   const [{ tabs, activeId }, setTabState] = useState(() => loadTabs(workPath));
 
@@ -251,23 +257,37 @@ export function ArtifactsPane({
       </div>
 
       {/* 内容区 */}
-      {!active ? (
-        <Placeholder label="没有打开的制品 —— 点右上角 + 打开，或在文稿标签的资源树里选文件" />
-      ) : active.kind === "doc" ? (
-        <DocView
-          workPath={workPath}
-          tree={tree}
-          settings={settings}
-          selected={selected}
-          onSelect={onSelectFile}
-          onAction={onFileAction}
-          onFileCreated={onTreeChanged}
-        />
-      ) : active.kind === "review" ? (
-        <DiffPane workPath={workPath} onApplied={onTreeChanged} />
-      ) : (
-        <Placeholder label={`${active.title}视图（R5-② 实施）`} />
-      )}
+      {/* 内容区：包裹层 min-h-0 flex-1 修正 flex 子项 h-full 基准
+          （否则 h-full 按含标签条的容器全高解析，视图整体高出一个标签条，页面右侧出滚动条） */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        {!active ? (
+          <Placeholder label="没有打开的制品 —— 点右上角 + 打开，或在文稿标签的资源树里选文件" />
+        ) : active.kind === "doc" ? (
+          <DocView
+            workPath={workPath}
+            tree={tree}
+            settings={settings}
+            selected={selected}
+            onSelect={onSelectFile}
+            onAction={onFileAction}
+            onFileCreated={onTreeChanged}
+          />
+        ) : active.kind === "review" ? (
+          <DiffPane workPath={workPath} onApplied={onTreeChanged} />
+        ) : active.kind === "issues" ? (
+          <IssuesView workPath={workPath} refreshKey={refreshKey} />
+        ) : active.kind === "ledger" ? (
+          <LedgerView workPath={workPath} />
+        ) : active.kind === "usage" ? (
+          <UsageView workPath={workPath} refreshKey={refreshKey} />
+        ) : active.kind === "git" ? (
+          <GitView workPath={workPath} />
+        ) : active.kind === "skills" ? (
+          <SkillsView workPath={workPath} />
+        ) : (
+          <Placeholder label={`${active.title}视图（未知类型）`} />
+        )}
+      </div>
     </section>
   );
 }

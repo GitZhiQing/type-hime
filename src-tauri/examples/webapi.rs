@@ -512,6 +512,25 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
                 .map(|(goal, _)| goal.map(|g| g.view()))
         })),
 
+        // ---- 制品面板（R5-②：git 单提交 diff + 技能文档读写） ----
+        "git_show" => ok!(type_hime_lib::git::show_commit(
+            &PathBuf::from(s("workPath")),
+            &s("hash")
+        )),
+        "read_skill" => ok!(
+            type_hime_lib::agent::skills::read_skill_raw(
+                Some(&PathBuf::from(s("workPath"))),
+                &s("name")
+            )
+            .map(|(content, source)| type_hime_lib::agent::skills::SkillRaw { content, source })
+            .ok_or_else(|| format!("技能 {} 不存在", s("name")))
+        ),
+        "write_skill" => ok!(type_hime_lib::agent::skills::write_skill_file(
+            &PathBuf::from(s("workPath")),
+            &s("name"),
+            &s("content")
+        )),
+
         other => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("未知命令：{other}")})),

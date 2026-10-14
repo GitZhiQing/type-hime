@@ -164,6 +164,48 @@ pub fn list_skill_meta(work_dir: Option<&Path>) -> Vec<SkillMeta> {
         .collect()
 }
 
+/// 技能原始 md 读取结果（R5 制品面板技能文档）。
+#[derive(Debug, Serialize)]
+pub struct SkillRaw {
+    /// 全文（含 frontmatter）
+    pub content: String,
+    /// builtin | work（作品层覆盖）
+    pub source: String,
+}
+
+/// 读取技能原始 md（R5 制品面板技能文档）：作品层覆盖优先，回落内置层。
+/// 返回 (原始全文含 frontmatter, 来源 builtin|work)；name 带路径分隔符或 .. 时拒绝。
+pub fn read_skill_raw(work_dir: Option<&Path>, name: &str) -> Option<(String, String)> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+    {
+        return None;
+    }
+    if let Some(dir) = work_dir {
+        let path = dir.join("skills").join(format!("{name}.md"));
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            return Some((raw, "work".to_string()));
+        }
+    }
+    BUILTIN_SKILLS
+        .iter()
+        .find(|(file, _)| file.trim_end_matches(".md") == name)
+        .map(|(_, raw)| ((*raw).to_string(), "builtin".to_string()))
+}
+
+/// 保存技能文件（R5 制品面板；人类直写通道：落作品级 skills/<name>.md 覆盖内置层，git 留痕）。
+/// 父目录自动创建（works::write_file 不建目录）；name 带路径分隔符或 .. 时拒绝。
+pub fn write_skill_file(work_dir: &Path, name: &str, content: &str) -> Result<(), String> {
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err(format!("非法技能名：{name}"));
+    }
+    let dir = work_dir.join("skills");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 skills 目录失败：{e}"))?;
+    crate::works::write_file(work_dir, &format!("skills/{name}.md"), content)
+}
+
 /// 关键词路由（R4-④ · REDESIGN §8.2 实现从简）：prompt 命中技能名或任一关键词即挂载。
 pub fn route_skills(prompt: &str, work_dir: Option<&Path>) -> Vec<String> {
     list_skill_meta(work_dir)
@@ -198,6 +240,60 @@ mod tests {
         let r = render_skills(&[s]);
         assert!(r.contains("# 技能指令"));
         assert!(r.contains("## 技能：章节"));
+    }
+
+    #[test]
+    fn read_skill_raw_layers_and_guards() {
+        let dir = std::env::temp_dir().join(format!(
+            "type-hime-skillraw-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 内置层可读（source=builtin）
+        let (raw, source) = read_skill_raw(Some(&dir), "writer-basics").unwrap();
+        assert_eq!(source, "builtin");
+        assert!(raw.contains("name: writer-basics"), "{raw}");
+        // 作品层覆盖后 source=work
+        std::fs::create_dir_all(dir.join("skills")).unwrap();
+        std::fs::write(
+            dir.join("skills/writer-basics.md"),
+            "---\nname: writer-basics\ndescription: 覆盖版\n---\n覆盖正文",
+        )
+        .unwrap();
+        let (raw, source) = read_skill_raw(Some(&dir), "writer-basics").unwrap();
+        assert_eq!(source, "work");
+        assert!(raw.contains("覆盖正文"));
+        // 路径守卫
+        assert!(read_skill_raw(Some(&dir), "../escape").is_none());
+        assert!(read_skill_raw(Some(&dir), "a/b").is_none());
+        assert!(read_skill_raw(Some(&dir), "不存在技能").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_skill_file_creates_dir_and_guards() {
+        let dir = std::env::temp_dir().join(format!(
+            "type-hime-skillwrite-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 无 git 仓库时 write 落盘成功、commit 失败被容忍？——works::write_file 会 commit 失败报错；
+        // 技能保存前提是作品目录（必有 git），此处先 init 保证行为一致
+        crate::git::init_repo(&dir).unwrap();
+        write_skill_file(&dir, "writer-basics", "---\nname: writer-basics\n---\n覆盖").unwrap();
+        let raw = std::fs::read_to_string(dir.join("skills/writer-basics.md")).unwrap();
+        assert!(raw.contains("覆盖"));
+        assert!(write_skill_file(&dir, "../x", "y").is_err());
+        assert!(write_skill_file(&dir, "a/b", "y").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
