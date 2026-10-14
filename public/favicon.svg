@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="13" fill="#1c1917"/>
-  <text x="32" y="46" text-anchor="middle"
-        font-family="Georgia, 'Songti SC', 'Noto Serif CJK SC', 'Noto Serif SC', SimSun, serif"
-        font-size="40" fill="#ece7de">码</text>
+  <defs>
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#251a10"/>
+      <stop offset="1" stop-color="#140d07"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14.4" fill="url(#ink)"/>
+  <text x="32" y="44.1" text-anchor="middle"
+        font-family="'Noto Serif SC','Source Han Serif SC','Songti SC',SimSun,serif"
+        font-size="36.25" font-weight="600" fill="#f2ead7">码</text>
+  <rect x="50" y="50" width="11" height="11" rx="2" fill="#b93a2c"/>
 </svg>
