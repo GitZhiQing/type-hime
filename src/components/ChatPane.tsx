@@ -152,15 +152,17 @@ export function ChatPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, workPath, sessionId]);
 
-  // 权限档位：随会话加载/切换（R4-③）
+  // 权限档位：随会话加载/切换（R4-③）。新会话尚无存档时回落默认「变更前确认」，
+  // 不得沿用上一个会话的档位显示（曾致：按钮显示完全访问、后端实际确认档）。
   useEffect(() => {
     if (!isWork || !workPath || !sessionId) return;
     let alive = true;
     api
       .listSessions(workPath)
       .then((list) => {
+        if (!alive) return;
         const cur = list.find((s) => s.id === sessionId);
-        if (alive && cur) setPermMode(cur.permission_mode);
+        setPermMode(cur ? cur.permission_mode : "confirm");
       })
       .catch(() => {});
     return () => {
