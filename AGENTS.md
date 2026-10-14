@@ -44,6 +44,7 @@ src-tauri/src/
     skills/          内置技能 md（writer-basics/ledger-update/review-consistency/ledger-tidy）
     profiles/        内置子 Agent md（general 通用基础模板）
   permissions.rs     权限两档 + 覆盖矩阵（resolve：pattern override → 工具级 → 会话档）
+  watch.rs           作品目录文件监听（R13 · D40：notify 递归 + .sessions/.git 过滤 + 400ms 防抖 → work:changed）
   works.rs           作品/文件/资源树（路径穿越防护；write_file 不建父目录，create_file 才建）
   git.rs             命令行 git 封装（log/show 单提交 diff；commit_all 供 git_commit 工具）
   pipeline.rs        六阶段状态机 + 阶段门
