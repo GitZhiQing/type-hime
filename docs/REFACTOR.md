@@ -1,7 +1,7 @@
 ---
 created: 2026-10-14
 status: 已确认 · 2026-10-14
-note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14）的工程执行计划。每片独立可验收、一片一提交；顺序 R1 → R2 → {R3、R4 可并行} → R4.5 → R5 → R6；R7 为后置可选路线（触发条件表）。进展（2026-10-14）：R1-R4 已完成（落点见 D33）；**R4.5 已完成**（5 提交，批量目标跑通至 complete + pause/resume，见 D34/D35）；**R5 已完成**（4 提交：制品多标签框架 → 五视图+md 预览 → GeneratePane 退役+内联问题卡 → §11 入口合规收口；落账见 D36）。下一片 R6 git 自动化+文档收尾。实施中的选型演化以 DECISIONS D26 起条目为准；实施进度以提交记录为准。
+note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14）的工程执行计划。每片独立可验收、一片一提交；顺序 R1 → R2 → {R3、R4 可并行} → R4.5 → R5 → R6；R7 为后置可选路线（触发条件表）。进展（2026-10-14）：R1-R5 已完成（落点见 D33/D35/D36）；**R8 多 Agent 团队已完成**（6 提交：并行基座→定义层→调度层→slash 委派化→管理页+运行卡→验收；根 Agent 调度用户可配置子 Agent、run_flow 从 chat 工具面退役，落账见 D37；git 提交改用户主动，见 D38）。**R6 范围收缩**（D38：取消阶段确认自动 commit）为「regression 扩展 + 文档对齐收尾」。实施中的选型演化以 DECISIONS D26 起条目为准；实施进度以提交记录为准。
 ---
 
 # REFACTOR · 重构执行计划
@@ -59,7 +59,8 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 | R4 | Agent 能力 + 权限（bash + 工具桥 + 两档×覆盖） | 后端重 / 前端中 | L | R2（与 R3 可并行） |
 | R4.5 | 长时目标（/goal，轮末验证器 + 迭代进度） | 后端中 / 前端中 | M | **R4 完成** |
 | R5 | 制品面板 + 旧 UI 退役 | 前端重 | M | **R4 完成**（聊天具备全部能力后才拆按钮；建议排 R4.5 之后） |
-| R6 | git 自动化 + 文档对齐收尾 | 后端轻 | S | R5 |
+| R6 | git 收尾（收缩：仅 regression 扩展 + 文档对齐；自动 commit 取消见 D38） | 后端轻 | S | R5 |
+| R8 | 多 Agent 团队（根 Agent 调度 + 用户可配置子 Agent；run_flow 退场） | 后端重 / 前端中 | L | R5 |
 
 ---
 
@@ -190,22 +191,39 @@ note: 基于 REDESIGN.md（已确认）与社区 Rust Agent 调研（2026-10-14�
 
 ---
 
-## 8. R6 · git 自动化 + 收尾
+## 8. R6 · git 收尾（收缩版）
+
+> 范围收缩（D38，2026-10-14）：原「阶段确认自动 commit 里程碑」取消——git 提交改为用户主动让 Agent 提交（git_commit 直连工具 + /提交 slash，见 D37/D38）。原「bash 白名单 git 只读展示」由制品面板 git 历史标签承接（R5-②）。剩余：
 
 **后端改动**
-- `pipeline_confirm` 成功后自动 commit 里程碑（`阶段确认：<阶段>`，无变更跳过）。
-- bash 白名单 git 只读四命令的交互展示（git 历史制品标签查看 Agent 查询结果）。
+- `examples/regression`：扩展为「仅聊天+制品」全流程断言（多 Agent 委派链路纳入）。
 
 **文档对齐**（按 REDESIGN §14.3 清单）
-- `SPEC.md`：D0-4/D0-5/D0-6/D0-7 修订；走通路径与切片章节按新形态重写。
-- `DECISIONS.md`：追加 D19 起——权限分档（D30 收敛为两档）、bash 白名单配置化、上下文三层、AI Elements 引入路线（R2 spike 结果）、rig 防御 facade、会话形态、长时目标（D31）、MCP 后置路线（D19-D32 已随各切片落账，收尾时核对无遗漏）。
-- `AGENTS.md`：目录速览、命令、硬约束更新。
-- `examples/regression`：扩展为「仅聊天+制品」全流程断言。
+- `SPEC.md`：决策表按现行形态核对修订（D0-4/5/6/7 已修订；核心机制章节补 R5/R8 形态）。
+- `DECISIONS.md`：核对 D19 起条目无遗漏（D34-D38 已随各切片落账）。
+- `AGENTS.md` / `README.md`：目录、命令、能力面更新。
 
-**验证**：`cargo test` 全绿；`regression` 通过；阶段确认后 git log 出现里程碑提交；文档与现状一致。
-**提交拆分**：① 阶段确认自动 commit ② regression 扩展 ③ 文档对齐。
+**验证**：`cargo test` 全绿；`regression` 通过；文档与现状一致。
+**提交拆分**：① regression 扩展 ② 文档对齐。
 
 ---
+
+## 8.5 R8 · 多 Agent 团队（2026-10-14，已完成 · D37/D38）
+
+**目标**：应用表现对齐「Codex 二开成小说工坊」——根 Agent 与用户交互、装配上下文、调度子 Agent 团队（可并行）；子 Agent 可由用户创建/查看/配置。
+
+**核心机制**（详见 D37）
+- **定义**：AgentProfile（md+frontmatter，正文=prompt），内置 general 模板 + 用户级同名覆盖；管理页 `/agents`（rail 第 4 入口）。
+- **调度**：spawn_agent 工具（subagent/description/prompt）；子 Agent 独立会话与工具白名单；递归硬禁；权限审批继承父会话；工具返回摘要（文本截断+用量+提议计数）。
+- **并行**：rig tool_concurrency（chat=4）+ parallel_tool_calls；提示词并行委派指引；子任务卡（agent 名+身份色）；call_id 精确配对。
+- **run_flow 退场**：装配注入由根 Agent 承担（委派前 read 素材写进 prompt）；阶段门→get_pipeline 软门；issues 落盘→record_issues；/正文 等 slash = 委派模板；flows.rs 保留（示例/regression 用）。
+- **git 提交**（D38）：用户主动 → git_commit 工具 + /提交（Confirm 档审批）。
+
+**验收实录**：并行委派（st-3/st-5 delta 交错=真并发）；自定义 agent（管理页新建 excerpt→编辑→委派→根逐字复核汇报）；/一致性 1 2 全链路（根装配→委派 general→子 Agent 轨迹→record_issues 落盘 34→48 条）；/提交（bash 审批→git_commit 审批→提交 01eff74 落库）；cargo test 67 绿；regression 8/8。
+
+**后置**（未进本批）：run_in_background 后台模式、作品级 agent 覆盖、SendMessage 续话子 Agent、子会话独立回看标签页。
+
+**提交拆分（6 片，均已完成）**：① 并行基座 ② 定义层 ③ 调度层 ④ slash 委派化+/提交 ⑤ 管理页+运行卡 ⑥ 验收+文档。
 
 ## 9. R7 · 后置路线（可选，不排期）
 
