@@ -335,7 +335,7 @@ async fn scenario8_multiround(sp: &mut Spike, s: &AppSettings, work_dir: &Path) 
     let saw_ch4 = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&saw_ch4);
     let saw = Arc::new(move |ev: &AgentEvent| {
-        if let AgentEvent::ToolCall { name, args } = ev {
+        if let AgentEvent::ToolCall { name, args, .. } = ev {
             if name == "preflight_chapter" && args.contains("004") {
                 flag.store(true, Ordering::Relaxed);
             }

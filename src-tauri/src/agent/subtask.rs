@@ -9,13 +9,14 @@ use std::sync::Arc;
 
 use super::events::{AgentEvent, EventSink};
 
-/// 子任务 id（进程内递增）。
+/// 子任务 id（进程内递增；并行子 Agent 各自唯一，见 R8-③）。
 pub fn next_id() -> String {
     static N: AtomicU64 = AtomicU64::new(1);
     format!("st-{}", N.fetch_add(1, Ordering::SeqCst))
 }
 
 /// 包装事件出口：映射为带子任务 id 的事件（见模块说明）。
+/// call_id 随事件透传（R8-③：并行子 Agent 同名工具的精确配对）。
 pub fn wrap_sink(parent: &EventSink, id: &str) -> EventSink {
     let parent = Arc::clone(parent);
     let id = id.to_string();
@@ -24,15 +25,25 @@ pub fn wrap_sink(parent: &EventSink, id: &str) -> EventSink {
             id: id.clone(),
             text,
         }),
-        AgentEvent::ToolCall { name, args } => parent(AgentEvent::SubTaskToolCall {
+        AgentEvent::ToolCall {
+            name,
+            args,
+            call_id,
+        } => parent(AgentEvent::SubTaskToolCall {
             id: id.clone(),
             name,
             args,
+            call_id,
         }),
-        AgentEvent::ToolResult { name, output } => parent(AgentEvent::SubTaskToolResult {
+        AgentEvent::ToolResult {
+            name,
+            output,
+            call_id,
+        } => parent(AgentEvent::SubTaskToolResult {
             id: id.clone(),
             name,
             output,
+            call_id,
         }),
         // 子流程收尾由 SubTaskEnd 承载，不上抛
         AgentEvent::Final { .. } | AgentEvent::Error { .. } => {}
@@ -53,8 +64,16 @@ mod tests {
         let child = wrap_sink(&parent, "st-9");
 
         child(AgentEvent::TextDelta { text: "hi".into() });
-        child(AgentEvent::ToolCall { name: "read_file".into(), args: "{}".into() });
-        child(AgentEvent::ToolResult { name: "read_file".into(), output: "ok".into() });
+        child(AgentEvent::ToolCall {
+            name: "read_file".into(),
+            args: "{}".into(),
+            call_id: Some("c1".into()),
+        });
+        child(AgentEvent::ToolResult {
+            name: "read_file".into(),
+            output: "ok".into(),
+            call_id: Some("c1".into()),
+        });
         child(AgentEvent::Final { output: "不该上抛".into() });
         child(AgentEvent::Error { message: "不该上抛".into() });
         child(AgentEvent::ApprovalRequest { id: 1, tool: "bash".into(), title: "t".into(), detail: "d".into() });

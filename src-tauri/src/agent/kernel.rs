@@ -142,6 +142,7 @@ where
                 on_event(AgentEvent::ToolCall {
                     name: tool_call.function.name.to_string(),
                     args,
+                    call_id: Some(tool_call.id.to_string()),
                 });
             }
             Ok(MultiTurnStreamItem::ToolResult { tool_result }) => {
@@ -150,6 +151,7 @@ where
                 on_event(AgentEvent::ToolResult {
                     name: tool_result.name.to_string(),
                     output,
+                    call_id: Some(tool_result.call.to_string()),
                 });
             }
             Ok(MultiTurnStreamItem::FinalResponse(resp)) => {

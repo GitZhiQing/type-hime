@@ -14,9 +14,20 @@ pub enum AgentEvent {
     /// 文本增量
     TextDelta { text: String },
     /// 模型发起工具调用
-    ToolCall { name: String, args: String },
+    ToolCall {
+        name: String,
+        args: String,
+        /// rig call id（R8-③：并行调用配对；None=旧路径无 id）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        call_id: Option<String>,
+    },
     /// 工具执行结果（已回给模型）
-    ToolResult { name: String, output: String },
+    ToolResult {
+        name: String,
+        output: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        call_id: Option<String>,
+    },
     /// 运行结束，附最终文本
     Final { output: String },
     /// 运行失败
@@ -35,7 +46,13 @@ pub enum AgentEvent {
         note: Option<String>,
     },
     /// 子任务开始（R4：run_flow 触发长流程；前端渲染 Task 卡）
-    SubTaskStart { id: String, label: String },
+    SubTaskStart {
+        id: String,
+        label: String,
+        /// 子 Agent 名（R8-③：spawn_agent 委派时标注；None=普通子任务卡）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
+    },
     /// 子任务文本增量（子流程的 TextDelta 转发）
     SubTaskDelta { id: String, text: String },
     /// 子任务内的工具调用（轨迹）
@@ -43,12 +60,17 @@ pub enum AgentEvent {
         id: String,
         name: String,
         args: String,
+        /// rig call id（R8-③：并行子 Agent 同名工具的精确配对；None=按名回退配对）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        call_id: Option<String>,
     },
     /// 子任务内的工具结果
     SubTaskToolResult {
         id: String,
         name: String,
         output: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        call_id: Option<String>,
     },
     /// 子任务结束（status: done | error；summary 为执行摘要）
     SubTaskEnd {

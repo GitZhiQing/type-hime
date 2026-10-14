@@ -70,9 +70,32 @@ pub struct FlowRequest {
     pub chapter: Option<String>,
 }
 
+/// 子 Agent 执行器（R8-③）：由业务层（flows.rs）注入。
+/// 工具收到 spawn_agent 参数后交给它：它负责 profile→AgentSpec 构建、独立子会话、
+/// 事件桥（SubTask*）+ 权限继承，并返回给根 Agent 的摘要文本。
+/// 出处：ZCode Agent 工具（description/prompt/subagent_type 三参形态）。
+pub type AgentSpawner = Arc<
+    dyn Fn(AgentSpawnRequest, EventSink) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<String, String>> + Send>,
+        > + Send
+        + Sync,
+>;
+
+/// spawn_agent 的执行请求（工具 → 业务层的端口类型）。
+#[derive(Debug, Clone)]
+pub struct AgentSpawnRequest {
+    /// 子 Agent 名（profiles::load_profiles 的 name）
+    pub subagent: String,
+    /// 3-5 词任务描述（前端任务卡标题；ZCode 同语义）
+    pub description: String,
+    /// 任务全文（子 Agent 的首条输入）
+    pub prompt: String,
+}
+
 /// flow 执行器：由业务层注入（chat_flow 提供），返回执行摘要。
 /// 出处（REFACTOR A/R4）：run_flow 必须触发既有 flows 而非让 Agent 手工模拟，
 /// 保住 issues.json 落盘、preflight 注入、装配注入等副作用闭环。
+/// R8-③：chat 工具面退役 run_flow（改由 spawn_agent 委派），此端口保留供 flows 层与示例使用。
 pub type FlowRunner = Arc<
     dyn Fn(
             FlowRequest,
@@ -99,6 +122,8 @@ pub struct ToolCtx {
     pub event_sink: Option<EventSink>,
     /// flow 执行器（R4：run_flow 工具；None=该上下文不支持流程编排）
     pub flow_runner: Option<FlowRunner>,
+    /// 子 Agent 调度器（R8-③：spawn_agent 工具；None=该上下文不支持委派）
+    pub agent_spawner: Option<AgentSpawner>,
     /// 权限上下文（R4：会话档位 + 作品覆盖表；None=按安全默认「变更前确认」处理）
     pub permission: Option<crate::permissions::PermissionContext>,
 }
@@ -118,6 +143,7 @@ impl ToolCtx {
             approval: None,
             event_sink: None,
             flow_runner: None,
+            agent_spawner: None,
             permission: None,
         }
     }
@@ -143,6 +169,12 @@ impl ToolCtx {
     /// 设置 flow 执行器。
     pub fn flow_runner(mut self, runner: Option<FlowRunner>) -> Self {
         self.flow_runner = runner;
+        self
+    }
+
+    /// 设置子 Agent 调度器（R8-③）。
+    pub fn agent_spawner(mut self, spawner: Option<AgentSpawner>) -> Self {
+        self.agent_spawner = spawner;
         self
     }
 
@@ -589,6 +621,7 @@ impl Tool for RunFlow {
         sink(AgentEvent::SubTaskStart {
             id: id.clone(),
             label: label.clone(),
+            agent: None,
         });
         let child = super::subtask::wrap_sink(sink, &id);
         let result = runner(
@@ -913,6 +946,8 @@ where
 }
 
 /// 按名字构建工具实例（DynamicTool 列表）。
+/// R8-③：run_flow 从 chat 工具面退役（改名 agent:run_flow 供示例/兼容调试显式请求，
+/// 不被任何默认 spec 挂载）——普通路径由 spawn_agent 委派子 Agent 执行。
 pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
     let mut out = Vec::new();
     for name in names {
@@ -923,7 +958,16 @@ pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
             "propose_edit" => out.push(erase(ProposeEdit { ctx: ctx.clone() })),
             "propose_write" => out.push(erase(ProposeWrite { ctx: ctx.clone() })),
             "bash" => out.push(erase(Bash { ctx: ctx.clone() })),
+            // 保留实现（flows 层与示例可用），chat 默认工具面不再列它
             "run_flow" => out.push(erase(RunFlow { ctx: ctx.clone() })),
+            "spawn_agent" => out.push(erase(SpawnAgent { ctx: ctx.clone() })),
+            "git_commit" => out.push(erase(GitCommit { ctx: ctx.clone() })),
+            "get_pipeline" => out.push(erase(GetPipelineTool {
+                work_root: ctx.work_root.clone(),
+            })),
+            "record_issues" => out.push(erase(RecordIssuesTool {
+                work_root: ctx.work_root.clone(),
+            })),
             "get_ledger" => out.push(erase(GetLedgerTool {
                 work_root: ctx.work_root.clone(),
             })),
@@ -943,4 +987,278 @@ pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// SpawnAgent：委派子 Agent（R8-③ · 多 Agent 团队）
+// 出处：ZCode Agent 工具（description 3-5 词 + prompt 任务全文 + subagent_type），
+// 刻意不给调用级 model 参数（防历史 override 污染当前配置——ZCode 同款取舍）。
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SpawnAgentArgs {
+    /// 子 Agent 名（见团队清单，如 general）
+    pub subagent: String,
+    /// 任务描述（3-5 个词，任务卡标题用），如「写第 7 章正文」
+    pub description: String,
+    /// 任务全文：目标、交付物、上下文要点、约束规程、输出要求（子 Agent 的唯一输入）
+    pub prompt: String,
+}
+
+#[derive(Clone)]
+pub struct SpawnAgent {
+    ctx: ToolCtx,
+}
+
+impl Tool for SpawnAgent {
+    const NAME: &'static str = "spawn_agent";
+    type Error = std::convert::Infallible;
+    type Args = SpawnAgentArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        let (Some(sink), Some(spawner)) = (self.ctx.event_sink.as_ref(), self.ctx.agent_spawner.as_ref())
+        else {
+            return Ok("[委派不可用] 当前上下文没有子 Agent 调度通道（仅作品会话内的创作助手支持 spawn_agent）。".to_string());
+        };
+        let id = super::subtask::next_id();
+        let label = format!("{} · {}", args.subagent, args.description);
+        sink(AgentEvent::SubTaskStart {
+            id: id.clone(),
+            label: label.clone(),
+            agent: Some(args.subagent.clone()),
+        });
+        let child = super::subtask::wrap_sink(sink, &id);
+        let result = spawner(
+            AgentSpawnRequest {
+                subagent: args.subagent.clone(),
+                description: args.description.clone(),
+                prompt: args.prompt.clone(),
+            },
+            child,
+        )
+        .await;
+        let (status, summary) = match result {
+            Ok(s) => ("done", s),
+            Err(e) => ("error", e),
+        };
+        sink(AgentEvent::SubTaskEnd {
+            id: id.clone(),
+            status: status.to_string(),
+            summary: summary.clone(),
+        });
+        Ok(match status {
+            "done" => format!("[子 Agent 完成] {label}\n{summary}"),
+            _ => format!("[子 Agent 失败] {label}：{summary}"),
+        })
+    }
+
+    fn description(&self) -> String {
+        "委派专职子 Agent 执行任务（独立会话与工具面；一切落稿仍经提议审阅）。\
+         委派前先把必要上下文（卷纲/章纲/账本要点/文风指令/文件路径）写进 prompt——子 Agent 看不到本会话历史。\
+         多个独立任务要并行时：在**同一条回复里发多个 spawn_agent 调用**，它们会并发执行。\
+         不要让两个子 Agent 并行修改同一个文件（顺序委派）。"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(SpawnAgentArgs).to_value()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GitCommit：用户主动提交（R8-③ 决定：替代原 R6「阶段确认自动 commit」自动化）
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GitCommitArgs {
+    /// 提交说明（中文一句；作者要求提交时按其意图书写）
+    pub message: String,
+}
+
+#[derive(Clone)]
+pub struct GitCommit {
+    ctx: ToolCtx,
+}
+
+impl Tool for GitCommit {
+    const NAME: &'static str = "git_commit";
+    type Error = std::convert::Infallible;
+    type Args = GitCommitArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        // 与 bash 白名单解耦的显式提交通道；变更前确认档挂起等作者决策，完全访问档直通
+        let mode = self.ctx.resolve_mode("git_commit", Some(&args.message));
+        if mode != crate::permissions::PermissionMode::FullAccess {
+            let detail = format!(
+                "工作目录：{}\n提交说明：{}",
+                self.ctx.work_root.display(),
+                args.message
+            );
+            let decision = approval::request_approval(
+                self.ctx.approval.as_ref(),
+                self.ctx.event_sink.as_ref(),
+                "git_commit",
+                &args.message,
+                &detail,
+            )
+            .await;
+            if decision != Decision::Allow {
+                return Ok("[未提交] 作者未批准本次提交。如仍有未提交变更，请先向作者确认。".to_string());
+            }
+        }
+        let root = self.ctx.work_root.clone();
+        let msg = args.message.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            crate::git::commit_all(&root, &msg)?;
+            crate::git::log_oneline(&root, 1)
+        })
+        .await;
+        match result {
+            Ok(Ok(log)) => Ok(format!(
+                "[已提交] {}\n最近提交：{}",
+                args.message,
+                log.first().map(|s| s.as_str()).unwrap_or("-")
+            )),
+            Ok(Err(e)) => Ok(format!("[提交失败] {e}")),
+            Err(e) => Ok(format!("[提交失败] 执行线程异常：{e}")),
+        }
+    }
+
+    fn description(&self) -> String {
+        "把当前工作区全部变更提交为一个 git 提交（本地仓库；不 push）。\
+         仅在作者明确要求提交（或同意你的提交建议）时调用；一次提交聚焦一个主题，message 用中文一句话。\
+         无未提交变更时为空操作。执行前作者需要确认（完全访问档直通）。"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(GitCommitArgs).to_value()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GetPipeline：流水线状态查询（R8-③：run_flow 阶段硬门退役后的软门数据源）
+
+#[derive(Clone)]
+pub struct GetPipelineTool {
+    work_root: PathBuf,
+}
+
+impl Tool for GetPipelineTool {
+    const NAME: &'static str = "get_pipeline";
+    type Error = std::convert::Infallible;
+    type Args = EmptyArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        _args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        match crate::pipeline::load_pipeline(&self.work_root) {
+            Ok(state) => {
+                let view = state.to_view(&self.work_root);
+                let mut s = format!("当前阶段：{}（已确认：", view.stage_label);
+                if view.confirmed.is_empty() {
+                    s.push_str("无）");
+                } else {
+                    let labels: Vec<String> = view
+                        .gates
+                        .iter()
+                        .filter(|g| g.confirmed)
+                        .map(|g| g.label.clone())
+                        .collect();
+                    s.push_str(&labels.join("、"));
+                    s.push('）');
+                }
+                s.push_str("\n各阶段进入条件：");
+                for g in &view.gates {
+                    s.push_str(&format!(
+                        "\n- {}：{}{}",
+                        g.label,
+                        if g.confirmed {
+                            "已确认".to_string()
+                        } else if g.enterable {
+                            "可进入".to_string()
+                        } else {
+                            format!("未满足（缺：{}）", g.blocked_by.clone().unwrap_or_default())
+                        },
+                        if g.current { "（当前）" } else { "" }
+                    ));
+                }
+                s.push_str("\n遵守流水线顺序：上游阶段未确认时先向作者说明，不要越过确认点。");
+                Ok(s)
+            }
+            Err(e) => Ok(format!("[读取流水线失败] {e}")),
+        }
+    }
+
+    fn description(&self) -> String {
+        "查询六阶段流水线状态（设定→总纲→卷纲→章纲→正文→审校）与各阶段进入条件。\
+         委派写作任务前用它确认上游已确认；阶段推进由作者在 PLAN 条上确认。"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(EmptyArgs).to_value()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RecordIssues：审校报告结构化落盘（R8-③：承接 run_flow 的 issues.json 副作用闭环）
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RecordIssuesArgs {
+    /// 章号（如 ch-003；卷级问题用 vol-01）
+    pub chapter: String,
+    /// 审校报告全文（编号问题清单；工具按编号拆条落盘）
+    pub report: String,
+    /// 来源（consistency | preflight | recheck；默认 consistency）
+    pub source: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct RecordIssuesTool {
+    work_root: PathBuf,
+}
+
+impl Tool for RecordIssuesTool {
+    const NAME: &'static str = "record_issues";
+    type Error = std::convert::Infallible;
+    type Args = RecordIssuesArgs;
+    type Output = String;
+
+    async fn call(
+        &self,
+        _ctx: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        let source = args.source.clone().unwrap_or_else(|| "consistency".to_string());
+        match crate::issues::ingest_report(&self.work_root, &args.chapter, &source, &args.report) {
+            Ok(n) => Ok(format!(
+                "[问题清单已落盘] {chapter}：按编号拆出 {n} 条（来源 {source}）。作者可在问题清单制品中逐条裁决。",
+                chapter = args.chapter
+            )),
+            Err(e) => Ok(format!("[落盘失败] {e}")),
+        }
+    }
+
+    fn description(&self) -> String {
+        "把审校报告（编号问题清单）结构化落盘到作品的问题清单（issues.json，进 git）。\
+         编辑/审校类子 Agent 完成检查后由根 Agent 调用（或委派时要求子 Agent 调用）：先落盘，再汇报。\
+         已落盘的问题由作者逐条裁决（fixed/dismissed），复检时用 list_issues 读取。"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        rig::schemars::schema_for!(RecordIssuesArgs).to_value()
+    }
 }

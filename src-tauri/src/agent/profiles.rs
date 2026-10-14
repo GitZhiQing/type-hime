@@ -214,6 +214,20 @@ pub fn delete_profile(name: &str) -> Result<bool, String> {
     Ok(true)
 }
 
+/// 团队清单渲染（R8-③：注入根 Agent preamble，让根知道可委派谁）。
+pub fn render_team_listing() -> Option<String> {
+    let all = load_profiles();
+    if all.is_empty() {
+        return None;
+    }
+    let mut out = String::from("## 可用子 Agent 团队（spawn_agent 的 subagent 取值）\n");
+    for p in &all {
+        out.push_str(&format!("- {}：{}\n", p.name, p.description));
+    }
+    out.push_str("（作者可在「Agents」页创建/编辑更多子 Agent）");
+    Some(out)
+}
+
 /// 名称守卫：防路径穿越（与技能读写同口径）。
 fn valid_name(name: &str) -> bool {
     !name.is_empty()

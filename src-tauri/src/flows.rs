@@ -308,13 +308,18 @@ pub async fn chat_flow_global(
 // 长时目标轮末循环（R4.5-③ · D31）：轮末独立完成验证器 + 迭代推进
 // 迭代仅由验证器边界推进；暂停/清除在轮间生效（读改写会话档案，并发以磁盘为准）。
 
-/// chat spec 构建：技能动态挂载（默认 writer-basics + slash 强制 + 关键词路由）。
+/// chat spec 构建：技能动态挂载（默认 writer-basics + slash 强制 + 关键词路由）
+/// + 子 Agent 团队清单注入（R8-③：根 Agent 需要知道可委派谁）。
 fn chat_spec_for_prompt(prompt: &str, work_dir: &std::path::Path) -> AgentSpec {
     let mut extra = agent::skills::route_skills(prompt, Some(work_dir));
     if let Some(s) = agent::spec::slash_forced_skill(prompt) {
         extra.push(s.to_string());
     }
-    agent::spec::chat_spec_with_skills(&extra)
+    let mut spec = agent::spec::chat_spec_with_skills(&extra);
+    if let Some(team) = agent::profiles::render_team_listing() {
+        spec.sections.push(("team".to_string(), team));
+    }
+    spec
 }
 
 /// chat 工具上下文构建（每轮重建：档位/覆盖表随会话档案与 project.json 变化）。
@@ -327,7 +332,7 @@ fn chat_tool_ctx(
     on_event: &EventSink,
     on_proposal: &ProposalSink,
 ) -> Result<ToolCtx, String> {
-    let runner = chat_flow_runner(Arc::clone(queue), work_path, Arc::clone(on_proposal));
+    let runner = chat_flow_runner(Arc::clone(queue), work_path.clone(), Arc::clone(on_proposal));
     // 权限上下文（R4-①）：会话档位（存会话档案）+ 作品覆盖表（project.json）
     let store = SessionStore::Work(work_dir.clone());
     let session_mode = session::load_session(&store, session_id)
@@ -335,12 +340,166 @@ fn chat_tool_ctx(
         .unwrap_or_default();
     let perm_config = pipeline::load_permission_config(&work_dir).unwrap_or_default();
     let permission = crate::permissions::PermissionContext::new(session_mode, perm_config);
+    // 子 Agent 调度器（R8-③）：继承父会话权限/审批；子会话独立、事件经 SubTask* 回流
+    let spawner = agent_spawner(
+        Arc::clone(queue),
+        approval.clone(),
+        permission.clone(),
+        work_dir.clone(),
+        work_path,
+        Arc::clone(on_proposal),
+    );
     Ok(ToolCtx::new(work_dir, Arc::clone(queue), Arc::clone(on_proposal))
         .approval(approval)
         .event_sink(Some(Arc::clone(on_event)))
         .flow_runner(Some(runner))
+        .agent_spawner(Some(spawner))
         .permission(Some(permission)))
 }
+
+// ---------------------------------------------------------------------------
+// 子 Agent 调度（R8-③ · 多 Agent 团队）：spawn_agent 端口实现
+// 形态来源 ZCode：profile→AgentSpec、独立子会话、事件桥、权限继承、递归硬禁。
+
+/// 子 Agent 调度器：加载 profile → 构建 spec（工具面 ∩ 注册表 − spawn_agent）→
+/// 独立子会话运行 → 返回给根 Agent 的摘要（最终文本 + 用量 + 提议计数）。
+pub fn agent_spawner(
+    queue: Arc<Mutex<ReviewQueue>>,
+    approval: Option<Arc<agent::approval::ApprovalBroker>>,
+    permission: crate::permissions::PermissionContext,
+    work_dir: PathBuf,
+    work_path: String,
+    on_proposal: ProposalSink,
+) -> agent::tools::AgentSpawner {
+    Arc::new(move |req: agent::tools::AgentSpawnRequest, sink: EventSink| {
+        let queue = Arc::clone(&queue);
+        let approval = approval.clone();
+        let permission = permission.clone();
+        let work_dir = work_dir.clone();
+        let work_path = work_path.clone();
+        let prop = Arc::clone(&on_proposal);
+        Box::pin(async move {
+            run_subagent(&queue, approval, permission, &work_dir, &work_path, &req, sink, prop).await
+        })
+    })
+}
+
+/// 全部已实现工具名（profile.tools 的白名单基集；spawn_agent 递归硬禁）。
+const TOOL_WHITELIST: &[&str] = &[
+    "read_file",
+    "propose_edit",
+    "propose_write",
+    "bash",
+    "get_ledger",
+    "list_issues",
+    "list_lore",
+    "check_visibility_leak",
+    "preflight_chapter",
+    "record_issues",
+    "get_pipeline",
+];
+
+/// 子 Agent 工具面解析：空 profile.tools = 通用集；显式列表 = 白名单；
+/// 永远剔除 spawn_agent（子 Agent 不可递归派生——ZCode 同款硬禁）。
+fn resolve_subagent_tools(profile: &agent::profiles::AgentProfile) -> Vec<String> {
+    let base: Vec<String> = if profile.tools.is_empty() {
+        TOOL_WHITELIST.iter().map(|s| s.to_string()).collect()
+    } else {
+        profile
+            .tools
+            .iter()
+            .filter(|t| TOOL_WHITELIST.contains(&t.as_str()))
+            .cloned()
+            .collect()
+    };
+    base.into_iter().filter(|t| t != "spawn_agent").collect()
+}
+
+/// 子 Agent 的一轮执行。
+#[allow(clippy::too_many_arguments)]
+async fn run_subagent(
+    queue: &Arc<Mutex<ReviewQueue>>,
+    approval: Option<Arc<agent::approval::ApprovalBroker>>,
+    permission: crate::permissions::PermissionContext,
+    work_dir: &std::path::Path,
+    _work_path: &str,
+    req: &agent::tools::AgentSpawnRequest,
+    sink: EventSink,
+    on_proposal: ProposalSink,
+) -> Result<String, String> {
+    let profile = agent::profiles::load_profiles()
+        .into_iter()
+        .find(|p| p.name == req.subagent)
+        .ok_or_else(|| format!("子 Agent {} 不存在（用管理页创建，或检查名称）", req.subagent))?;
+    let settings = kernel::current_settings()?;
+    let started = std::time::Instant::now();
+    // 子会话：独立存档（一次性任务；st-id 唯一避免并行覆盖），usage 自动计入成本汇总
+    let sid = format!("agent-{}-{}", req.subagent, agent::subtask::next_id());
+    let store = SessionStore::Work(work_dir.to_path_buf());
+    let spec = agent::spec::AgentSpec {
+        id: profile.name.clone(),
+        sections: vec![(
+            "identity".to_string(),
+            format!("{}\n\n{}", profile.body.trim(), SUBAGENT_COMMON_NOTES),
+        )],
+        tools: resolve_subagent_tools(&profile),
+        skills: profile.skills.clone(),
+        model_override: profile.model.clone(),
+        max_turns: profile.max_turns.max(1),
+        tool_concurrency: 1,
+        parallel_tool_calls: false,
+    };
+    let tool_ctx = ToolCtx::new(
+        work_dir.to_path_buf(),
+        Arc::clone(queue),
+        Arc::clone(&on_proposal),
+    )
+    .approval(approval)
+    .event_sink(Some(Arc::clone(&sink)))
+    .permission(Some(permission));
+    // 提议计数（摘要里告知根 Agent 有几件已入队等作者审阅）
+    let before = queue.lock().unwrap().list().len();
+    let outcome = kernel::run(
+        &settings,
+        Some(&tool_ctx),
+        &spec,
+        Vec::new(),
+        &req.prompt,
+        move |ev| sink(ev),
+    )
+    .await?;
+    let sess = Session {
+        messages: outcome.messages,
+        last_usage: outcome.usage,
+        ..Session::new(sid)
+    };
+    let _ = session::save_session(&store, &sess);
+    let after = queue.lock().unwrap().list().len();
+    let queued = after.saturating_sub(before);
+    let secs = started.elapsed().as_secs();
+    let tokens = outcome
+        .usage
+        .map(|u| u.input_tokens + u.output_tokens)
+        .unwrap_or(0);
+    // 摘要给根 Agent：最终文本（截断）+ 用量 + 提议计数（ZCode AgentCompletedOutput 同语义）
+    let text: String = outcome.text.chars().take(8000).collect();
+    let truncated = if outcome.text.chars().count() > 8000 {
+        "\n…（子 Agent 输出过长已截断）"
+    } else {
+        ""
+    };
+    Ok(format!(
+        "子 Agent「{}」（{}）完成任务。耗时 {secs}s，用量 ≈{tokens} tokens，新提议 {queued} 件（已入审阅队列等作者接受）。\n\n最终汇报：\n{text}{truncated}",
+        profile.name, req.description
+    ))
+}
+
+/// 子 Agent 公共约束（写死注入，profile 正文之外——ZCode Subagent Notes 同款）。
+const SUBAGENT_COMMON_NOTES: &str = r#"## 子 Agent 公共约束
+- 你的服务对象是根 Agent：结论、清单、要点直接写在最终回复里（根 Agent 只读你的文本）。
+- 一切作品文件修改走 propose_edit / propose_write 提议（作者审阅后才落盘）；你无法直接写盘。
+- 不要派生其他 Agent；超出任务范围的事项在回复里说明，交根 Agent 处理。
+- 文件路径一律相对作品根（如 volumes/vol-01/chapters/ch-003.md）。"#;
 
 /// 验证器基础设施失败时的 fail-open 产物（裁判链路故障 ≠ 目标未完成，放行不卡死）。
 fn fail_open_verifier(reason: String) -> agent::goal::GoalVerifierOutput {
