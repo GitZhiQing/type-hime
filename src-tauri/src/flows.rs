@@ -718,8 +718,9 @@ pub fn chat_flow_runner(
     })
 }
 
-/// slash 指令化（R4-⑥ · REDESIGN §5.3）：`/命令 参数` → 结构化指令块，驱动 Agent 走既有能力
-/// （run_flow / 直连检查工具），而不是前端直调命令。返回 None 表示不是已知 slash 命令。
+/// slash 指令化（R4-⑥ · REDESIGN §5.3；R8-④ 委派化）：`/命令 参数` → 结构化指令块。
+/// R8 起写作/审校命令是**委派模板**：指引根 Agent 装配上下文并 spawn_agent 委派子 Agent
+/// （原 run_flow 直调退役）；检查类命令仍是直连工具。返回 None 表示不是已知 slash 命令。
 pub fn slash_instruction(prompt: &str) -> Option<String> {
     let head = prompt.trim_start();
     if !head.starts_with('/') {
@@ -746,43 +747,106 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
             ),
         }
     };
-    let flow = match cmd {
-        "章纲" => Some(("chapter_outline", "生成章纲")),
-        "正文" => Some(("chapter", "生成正文")),
-        "回写" => Some(("ledger_update", "账本回写")),
-        "一致性" => Some(("consistency", "一致性检查")),
-        "去AI味" => Some(("deai", "去 AI 味")),
-        "复检" => Some(("recheck", "复检")),
-        "审卷" => Some(("review_volume", "卷级批审")),
-        "整理账本" => Some(("ledger_tidy", "账本整理")),
+    let chapter_hint = if chapter.is_empty() {
+        "\n（作者未给出章号，请先向作者确认章号再委派。）"
+    } else {
+        ""
+    };
+    let ch_path = format!("volumes/vol-{volume:02}/chapters/{chapter}.md");
+    // 委派模板（R8-④）：角色提示 + 装配指引 + 输出要求；具体上下文由根 Agent 读取后填入
+    let delegation = match cmd {
+        "章纲" => Some((
+            "生成章纲",
+            format!(
+                "请用 spawn_agent 工具委派 general 子 Agent 撰写该章章纲（目标文件 {ch_path} 的章纲同伴：volumes/vol-{volume:02}/chapters/{chapter}-章纲.md）。\n\
+                 委派前你须装配上下文并入委派 prompt：读卷纲（volumes/vol-{volume:02}/卷纲.md）与本卷已确认章纲，给本卷结构定位与前后章承接要点。\n\
+                 要求子 Agent：按 writer-basics 规程产出章纲（目标/情节点/冲突/钩子），走 propose_write 提议。{chapter_hint}"
+            ),
+        )),
+        "正文" => Some((
+            "生成正文",
+            format!(
+                "请用 spawn_agent 工具委派 general 子 Agent 撰写本章正文（目标文件 {ch_path}）。\n\
+                 委派前你须装配上下文并入委派 prompt：卷纲要点、本章章纲全文、账本要点（用 get_ledger 取角色当前状态）、上一章结尾（读上一章文件末段）、文风指令（settings/style/文风指令.md）。\n\
+                 要求子 Agent：按 writer-basics 规程写足章纲全部情节点，全文一次 propose_write，正文先自检（与账本不冲突、不提前说破伏笔）。{chapter_hint}"
+            ),
+        )),
+        "回写" => Some((
+            "账本回写",
+            format!(
+                "请用 spawn_agent 工具委派 general 子 Agent 从本章正文提取状态变化并回写账本。\n\
+                 委派前你须装配上下文并入委派 prompt：本章正文文件 {ch_path} 与当前账本（get_ledger 概览 + 需要时 read ledger/账本.md）。\n\
+                 要求子 Agent：按 ledger-update 规程提取角色状态/新事实/伏笔进展，propose_edit 提交账本全文更新；只记正文明确发生的变化。{chapter_hint}"
+            ),
+        )),
+        "一致性" => Some((
+            "一致性检查",
+            format!(
+                "请用 spawn_agent 工具委派 general 子 Agent 对本章做一致性检查（vs 账本与可见设定）。\n\
+                 委派前你须装配上下文并入委派 prompt：本章正文 {ch_path}、账本要点（get_ledger）、既有问题清单（list_issues {chapter}）。\n\
+                 要求子 Agent：按 review-consistency 规程输出**编号问题清单**（【问题】【证据】【建议修复】），先跑 preflight_chapter 预检并入清单结论；确定无误才声明通过。\n\
+                 完成后：把问题清单交 record_issues 结构化落盘（chapter={chapter}，source=consistency），并汇报条数。{chapter_hint}"
+            ),
+        )),
+        "去AI味" => Some((
+            "去 AI 味",
+            format!(
+                "请用 spawn_agent 工具委派 general 子 Agent 对本章做去 AI 味改写（情节/人设/事实/伏笔一处不动）。\n\
+                 委派前你须装配上下文并入委派 prompt：本章正文 {ch_path} 全文要点与文风指令（settings/style/文风指令.md）。\n\
+                 要求子 Agent：删套话与万能形容、拆长句、去重复句式、把概括叙述落到具体动作细节；propose_edit 提交整章全文。{chapter_hint}"
+            ),
+        )),
+        "复检" => Some((
+            "复检",
+            format!(
+                "请用 spawn_agent 工具委派 general 子 Agent 复检本章（对照上轮问题清单逐项核验）。\n\
+                 委派前你须装配上下文并入委派 prompt：本章正文 {ch_path} 与问题清单（list_issues 取 {chapter} 全部条目及裁决状态）。\n\
+                 要求子 Agent：逐条核验 fixed/dismissed/open 与正文实际状态是否一致，列出仍未解决的问题；有修复则 propose_edit，新发现问题交 record_issues 落盘（source=recheck）。{chapter_hint}"
+            ),
+        )),
+        "审卷" => Some((
+            "卷级批审",
+            format!(
+                "请对第 {volume} 卷逐章一致性批审——用 spawn_agent 工具**并行委派**：先 read 卷纲确认章目（volumes/vol-{volume:02}/卷纲.md 与 chapters 目录），然后为每一章在同一条回复里发一个 spawn_agent 调用（各章互不依赖，可并发）。\n\
+                 每个委派 prompt 带上：该章正文文件路径、账本要点（get_ledger 一次取好）、该章既有问题清单要点，以及「按 review-consistency 规程输出编号问题清单、先跑 preflight」的要求。\n\
+                 全部返回后：逐章把问题清单交 record_issues 落盘，并向作者汇总各章问题数与总体结论。"
+            ),
+        )),
+        "整理账本" => Some((
+            "账本整理",
+            format!(
+                "请用 spawn_agent 工具委派 general 子 Agent 做账本整理（不改变事实，只改组织方式）。\n\
+                 委派前你须装配上下文并入委派 prompt：read ledger/账本.md 全文。\n\
+                 要求子 Agent：按 ledger-tidy 规程合并同线索/归档已回收/压缩休眠/补时间线，propose_edit 提交整理后全文；前后任何事实不得增删改写。"
+            ),
+        )),
+        "泄漏检查" => Some((
+            "关联泄漏检查",
+            "请调用 check_visibility_leak 工具（零 token，不发模型请求），把结果汇报给作者。".to_string(),
+        )),
+        "preflight" => Some((
+            "修为预检",
+            format!("请调用 preflight_chapter 工具（volume={volume}, chapter={chapter}），把结果汇报给作者。"),
+        )),
+        "提交" => {
+            let msg_hint = if rest.is_empty() {
+                "（作者未给说明——请概括本次变更主题作为 message）".to_string()
+            } else {
+                rest.join(" ")
+            };
+            Some((
+                "git 提交",
+                format!(
+                    "请调用 git_commit 工具把当前工作区变更提交（提交说明：{msg_hint}）。提交前如未看过 git status，可先用 bash 的 git status --short 核对变更范围；汇报提交结果与 hash。"
+                ),
+            ))
+        }
         _ => None,
     };
-    if let Some((kind, label)) = flow {
-        let (params, chapter_hint) = match kind {
-            "review_volume" => (format!("volume={volume}"), String::new()),
-            "ledger_tidy" => ("（无参数）".to_string(), String::new()),
-            _ if chapter.is_empty() => (
-                format!("volume={volume}"),
-                "\n（作者未给出章号，请先向作者确认章号再执行。）".to_string(),
-            ),
-            _ => (
-                format!("volume={volume}, chapter={chapter}"),
-                String::new(),
-            ),
-        };
-        return Some(format!(
-            "【技能指令】{label}（{cmd}）\n请调用 run_flow 工具执行（kind={kind}, {params}），不要用 read_file/propose_* 手工模拟该流程；完成后向作者简要汇报结果与产出的提议。{chapter_hint}"
-        ));
+    if let Some((label, body)) = delegation {
+        return Some(format!("【技能指令】{label}（{cmd}）\n{body}"));
     }
-    match cmd {
-        "泄漏检查" => Some(
-            "【技能指令】关联泄漏检查\n请调用 check_visibility_leak 工具（零 token，不发模型请求），把结果汇报给作者。".to_string(),
-        ),
-        "preflight" => Some(format!(
-            "【技能指令】修为预检\n请调用 preflight_chapter 工具（volume={volume}, chapter={chapter}），把结果汇报给作者。"
-        )),
-        _ => None,
-    }
+    None
 }
 
 #[cfg(test)]
@@ -790,31 +854,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slash_instruction_parses_params() {
+    fn slash_instruction_delegation_templates() {
+        // R8-④ 委派化：写作命令是委派模板（spawn_agent 指引），不再直调 run_flow
         let s = slash_instruction("/正文 1 3").unwrap();
-        assert!(s.contains("kind=chapter"), "{s}");
-        assert!(s.contains("volume=1, chapter=ch-003"), "{s}");
+        assert!(s.contains("spawn_agent"), "{s}");
+        assert!(s.contains("volumes/vol-01/chapters/ch-003.md"), "{s}");
+        assert!(s.contains("装配") && s.contains("章纲"), "{s}");
+        assert!(!s.contains("run_flow"), "不应再出现 run_flow：{s}");
 
         // 单数字 = 章号（默认第 1 卷）
         let s = slash_instruction("/一致性 5").unwrap();
-        assert!(s.contains("kind=consistency"), "{s}");
-        assert!(s.contains("chapter=ch-005"), "{s}");
+        assert!(s.contains("record_issues") && s.contains("ch-005"), "{s}");
 
         // 显式 ch-00N
         let s = slash_instruction("/复检 ch-002").unwrap();
-        assert!(s.contains("chapter=ch-002"), "{s}");
+        assert!(s.contains("ch-002") && s.contains("list_issues"), "{s}");
 
         // 无章号 → 提示先问作者
         let s = slash_instruction("/正文").unwrap();
         assert!(s.contains("未给出章号"), "{s}");
 
-        // 审卷只带卷号；整理账本无参数
+        // 审卷 = 并行逐章委派指引
         let s = slash_instruction("/审卷 2").unwrap();
-        assert!(s.contains("kind=review_volume") && s.contains("volume=2"), "{s}");
+        assert!(s.contains("并行委派") && s.contains("vol-02"), "{s}");
         let s = slash_instruction("/整理账本").unwrap();
-        assert!(s.contains("kind=ledger_tidy"), "{s}");
+        assert!(s.contains("ledger-tidy"), "{s}");
 
-        // 直连检查工具
+        // /提交 = git_commit 通道（说明取自参数）
+        let s = slash_instruction("/提交 修复第7章一致性").unwrap();
+        assert!(s.contains("git_commit") && s.contains("修复第7章一致性"), "{s}");
+        let s = slash_instruction("/提交").unwrap();
+        assert!(s.contains("git_commit"), "{s}");
+
+        // 直连检查工具不受影响
         let s = slash_instruction("/泄漏检查").unwrap();
         assert!(s.contains("check_visibility_leak"), "{s}");
         let s = slash_instruction("/preflight 1 3").unwrap();
