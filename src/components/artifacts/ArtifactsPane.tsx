@@ -37,6 +37,13 @@ import { UsageView } from "@/components/artifacts/UsageView";
 import { GitView } from "@/components/artifacts/GitView";
 import { SkillsView } from "@/components/artifacts/SkillsView";
 import { AssemblyPane } from "@/components/AssemblyPane";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 /**
  * 制品面板（R5-① · REDESIGN §5.2/§5.5）：VS Code 式多标签组。
@@ -176,6 +183,47 @@ export function ArtifactsPane({
     }
   }
 
+  // ---- 右键菜单（浏览器式）：关闭/关闭其他/关闭右侧/关闭全部 ----
+  const menuTabRef = useRef<string | null>(null);
+  const [ctxOpen, setCtxOpen] = useState(false);
+
+  /** 激活保留区最后一个标签；空则置空（渲染层已有空态指引） */
+  function fallbackActive(kept: ArtifactTab[]): string {
+    return kept.some((t) => t.id === activeId) ? activeId : (kept[kept.length - 1]?.id ?? "");
+  }
+
+  function closeOthers(id: string) {
+    const kept = tabs.filter((t) => t.id === id);
+    persist({ tabs: kept, activeId: fallbackActive(kept) });
+  }
+
+  function closeRight(id: string) {
+    const idx = tabs.findIndex((t) => t.id === id);
+    const kept = tabs.slice(0, idx + 1);
+    persist({ tabs: kept, activeId: fallbackActive(kept) });
+  }
+
+  function closeAll() {
+    persist({ tabs: [], activeId: "" });
+  }
+
+  // ---- 拖拽排序（原生 HTML5 DnD，drop 位置按指针在标签左/右半侧判定） ----
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; pos: "before" | "after" } | null>(null);
+
+  function moveTab(fromId: string, toId: string, pos: "before" | "after") {
+    const from = tabs.find((t) => t.id === fromId);
+    if (!from || fromId === toId) return;
+    const next = tabs.filter((t) => t.id !== fromId);
+    const ti = next.findIndex((t) => t.id === toId);
+    if (ti < 0) return;
+    next.splice(pos === "before" ? ti : ti + 1, 0, from);
+    persist({ tabs: next, activeId });
+  }
+
+  const menuIdx = menuTabRef.current ? tabs.findIndex((t) => t.id === menuTabRef.current) : -1;
+  const menuTab = menuIdx >= 0 ? tabs[menuIdx] : null;
+
   const active = tabs.find((t) => t.id === activeId);
 
   // 浏览器式标签栏（用户反馈）：标签保最小可读宽度，溢出时横向滚动——
@@ -250,77 +298,158 @@ export function ArtifactsPane({
   return (
     <section className="flex h-full min-w-0 flex-col">
       {/* 标签条（浏览器式）：标签等宽铺开、最小可读宽度（min-w-28）后溢出滚动；
-          隐藏滚动条（.tabbar-scroll），导航靠滚轮 + 边缘箭头 + 标签列表下拉 */}
+          隐藏滚动条（.tabbar-scroll），导航靠滚轮 + 边缘箭头 + 标签列表下拉；
+          右键菜单（关闭/其他/右侧/全部）与拖拽排序由 Trigger 层承接 */}
       <div className="flex h-9 shrink-0 items-stretch border-b bg-muted/30">
-        <div className="relative flex min-w-0 flex-1 items-stretch">
-          {canLeft && (
-            <button
-              type="button"
-              aria-label="向左滚动标签"
-              className="absolute left-0 top-0 z-10 flex h-full items-center bg-muted/95 px-0.5 text-muted-foreground hover:text-foreground"
-              onClick={() => scrollStrip(-1)}
-            >
-              <ChevronLeft className="size-3.5" />
-            </button>
-          )}
-          <div
-            ref={stripRef}
-            onWheel={onStripWheel}
-            className="tabbar-scroll flex min-w-0 flex-1 items-stretch overflow-x-auto"
-          >
-            {tabs.map((t) => (
+        <ContextMenu
+          open={ctxOpen}
+          onOpenChange={(o) => {
+            // 非标签区域右键不弹菜单（menuTabRef 在 contextmenu 捕获时写入）
+            setCtxOpen(o && menuTabRef.current !== null);
+          }}
+        >
+          <ContextMenuTrigger
+            render={
               <div
-                key={t.id}
-                data-tab-active={t.id === activeId}
-                className={cn(
-                  "group flex min-w-28 max-w-56 flex-1 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
-                  t.id === activeId
-                    ? "border-t-2 border-t-primary bg-background text-foreground"
-                    : "border-t-2 border-t-transparent text-muted-foreground hover:bg-background/60",
-                )}
+                className="relative flex min-w-0 flex-1 items-stretch"
+                onContextMenu={(e) => {
+                  const el = (e.target as HTMLElement).closest("[data-tab-id]");
+                  menuTabRef.current = el ? (el as HTMLElement).dataset.tabId ?? null : null;
+                }}
+              />
+            }
+          >
+            {canLeft && (
+              <button
+                type="button"
+                aria-label="向左滚动标签"
+                className="absolute left-0 top-0 z-10 flex h-full items-center bg-muted/95 px-0.5 text-muted-foreground hover:text-foreground"
+                onClick={() => scrollStrip(-1)}
               >
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5"
-                  onClick={() => persist({ tabs, activeId: t.id })}
-                  title={t.path ?? t.title}
-                >
-                  {t.kind === "doc" ? (
-                    <FileText className="size-3 shrink-0" />
-                  ) : (
-                    SINGLETONS.find((s) => s.kind === t.kind)?.icon ?? (
-                      <FileText className="size-3 shrink-0" />
-                    )
-                  )}
-                  <span className="truncate">{t.title}</span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`关闭 ${t.title}`}
-                  className={cn(
-                    "shrink-0 rounded p-0.5 transition-opacity hover:bg-accent",
-                    t.id === activeId
-                      ? "opacity-70 hover:opacity-100"
-                      : "opacity-0 group-hover:opacity-100",
-                  )}
-                  onClick={() => closeTab(t.id)}
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-          {canRight && (
-            <button
-              type="button"
-              aria-label="向右滚动标签"
-              className="absolute right-0 top-0 z-10 flex h-full items-center bg-muted/95 px-0.5 text-muted-foreground hover:text-foreground"
-              onClick={() => scrollStrip(1)}
+                <ChevronLeft className="size-3.5" />
+              </button>
+            )}
+            <div
+              ref={stripRef}
+              onWheel={onStripWheel}
+              onDragOver={(e) => e.preventDefault()}
+              className="tabbar-scroll flex min-w-0 flex-1 items-stretch overflow-x-auto"
             >
-              <ChevronRight className="size-3.5" />
-            </button>
-          )}
-        </div>
+              {tabs.map((t) => (
+                <div
+                  key={t.id}
+                  data-tab-id={t.id}
+                  data-tab-active={t.id === activeId}
+                  draggable
+                  onDragStart={(e) => {
+                    setDragId(t.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", t.id);
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setDropAt(null);
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragId || dragId === t.id) return;
+                    e.preventDefault();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const pos = e.clientX < r.left + r.width / 2 ? "before" : "after";
+                    setDropAt((cur) =>
+                      cur?.id === t.id && cur.pos === pos ? cur : { id: t.id, pos },
+                    );
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragId && dropAt) moveTab(dragId, dropAt.id, dropAt.pos);
+                    setDragId(null);
+                    setDropAt(null);
+                  }}
+                  className={cn(
+                    "group relative flex min-w-28 max-w-56 flex-1 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
+                    t.id === activeId
+                      ? "border-t-2 border-t-primary bg-background text-foreground"
+                      : "border-t-2 border-t-transparent text-muted-foreground hover:bg-background/60",
+                    dragId === t.id && "opacity-40",
+                  )}
+                >
+                  {/* 拖拽落点指示线（左/右半侧） */}
+                  {dropAt?.id === t.id && (
+                    <span
+                      className={cn(
+                        "absolute top-0 bottom-0 z-10 w-0.5 bg-primary",
+                        dropAt.pos === "before" ? "left-0" : "right-0",
+                      )}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5"
+                    onClick={() => persist({ tabs, activeId: t.id })}
+                    title={t.path ?? t.title}
+                  >
+                    {t.kind === "doc" ? (
+                      <FileText className="size-3 shrink-0" />
+                    ) : (
+                      SINGLETONS.find((s) => s.kind === t.kind)?.icon ?? (
+                        <FileText className="size-3 shrink-0" />
+                      )
+                    )}
+                    <span className="truncate">{t.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`关闭 ${t.title}`}
+                    className={cn(
+                      "shrink-0 rounded p-0.5 transition-opacity hover:bg-accent",
+                      t.id === activeId
+                        ? "opacity-70 hover:opacity-100"
+                        : "opacity-0 group-hover:opacity-100",
+                    )}
+                    onClick={() => closeTab(t.id)}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {canRight && (
+              <button
+                type="button"
+                aria-label="向右滚动标签"
+                className="absolute right-0 top-0 z-10 flex h-full items-center bg-muted/95 px-0.5 text-muted-foreground hover:text-foreground"
+                onClick={() => scrollStrip(1)}
+              >
+                <ChevronRight className="size-3.5" />
+              </button>
+            )}
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            {menuTab && (
+              <>
+                <ContextMenuItem onClick={() => closeTab(menuTab.id)}>
+                  关闭
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={tabs.length <= 1}
+                  onClick={() => closeOthers(menuTab.id)}
+                >
+                  关闭其他
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={menuIdx >= tabs.length - 1}
+                  onClick={() => closeRight(menuTab.id)}
+                >
+                  关闭右侧
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onClick={closeAll}>
+                  关闭全部
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
         {/* 标签列表下拉（浏览器 ⌄ 惯例）：全部开签一览，点选激活 */}
         <DropdownMenu>
           <DropdownMenuTrigger
