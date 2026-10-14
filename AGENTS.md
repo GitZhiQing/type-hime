@@ -30,8 +30,8 @@ src/             前端（React + TS + Tailwind v4 + shadcn/ui，base-ui 基座�
   components/ui/      shadcn 组件（CLI 生成）
   components/ai/      AI 界面组件（Message/Conversation/ToolCallCard 折叠卡/Response/任务行=子 Agent 卡/委派会话视图/会话历史渲染/代码高亮/提议卡/审批卡/输入框补全）
   components/artifacts/  制品面板（R5：ArtifactsPane 多标签框架 + 文稿/问题清单/账本/委派会话/成本/git/技能视图；装配视图已退役 D49）
-  components/*.tsx    导航 rail/资源树/编辑器/会话列表/聊天（标题栏：标题/重命名/时间/面板收起）/PLAN 条/上下文条/目标横幅/审阅
-  pages/              Launcher（作品库）/ GlobalChat（全局对话）/ Workbench / Settings / Agents（R8 子 Agent 团队管理）
+  components/*.tsx    导航 rail/资源树/编辑器/会话列表/聊天（标题栏：标题/重命名/时间/面板收起）/PLAN 条/上下文条/目标横幅/审阅/文件夹选择器（WorkspacePicker）
+  pages/              Launcher（作品库·书架）/ GlobalChat（全局对话）/ Workbench / Settings（供应商+工作区）/ Agents（R8 子 Agent 团队管理）
 src-tauri/src/
   lib.rs             Tauri 命令注册（唯一入口）
   flows.rs           流式业务体（Tauri/Web 双通道共用；事件与提议回调参数化）+ slash 委派模板 + 子 Agent 调度器（agent_spawner/run_subagent）+ run_flow 执行器（chat 工具面已退役，示例用）+ 长时目标迭代循环（goal_loop）
