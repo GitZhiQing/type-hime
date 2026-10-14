@@ -215,7 +215,7 @@ export function Settings() {
   }
 
   return (
-    /* D56：固定头 + 内容区独立滚动（原来 min-h-screen 在定高容器内会溢出窗口） */
+    /* 固定头 + 内容区独立滚动（min-h-screen 在定高容器内会溢出窗口） */
     <div className="flex h-full flex-col bg-background">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
         <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => navigate(-1)}>

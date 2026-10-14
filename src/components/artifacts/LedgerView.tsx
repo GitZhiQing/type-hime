@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ScrollText } from "lucide-react";
 
 /**
- * 账本制品（R5-②）：get_ledger 结构化视图（此前 api 已封装未用，此处启用）。
+ * 账本制品（R5-②）：get_ledger 结构化视图。
  * 分节：角色状态 / 已交代事实 / 伏笔登记 / 时间线；条目只读浏览。
  */
 

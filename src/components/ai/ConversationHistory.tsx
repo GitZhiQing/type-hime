@@ -9,11 +9,10 @@ import { AgentTaskRow, type AgentTaskRowData } from "@/components/ai/task";
 import type { MessageView, SubTaskRecord } from "@/lib/tauri";
 
 /**
- * 会话历史渲染（D50 从 ChatPane 抽出共享；D51 接任务行）：
- * 主聊天与子 Agent 会话视图（只读）复用同一套渲染。
- * - D48 分组：连续 assistant 消息合并为一个视觉流（一轮工具调用循环在档案里是多条消息，
+ * 会话历史渲染：主聊天与子 Agent 会话视图（只读）复用同一套渲染。
+ * - 分组（D48）：连续 assistant 消息合并为一个视觉流（一轮工具调用循环在档案里是多条消息，
  *   块间 gap-3 与块内 gap-1.5 交替会让工具卡间距忽大忽小）。
- * - D51 任务行：spawn_agent 调用渲染为单行任务卡（ZCode SubagentRow 同语义）——
+ * - 任务行：spawn_agent 调用渲染为单行任务卡（ZCode SubagentRow 同语义）——
  *   以会话档案的 SubTaskRecord 配对（(agent, label) 首选匹配，防失败轮孤儿行错位）；
  *   无档案（旧会话/事件未贯通）时从调用参数降级呈现，不退回普通工具卡。
  */

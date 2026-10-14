@@ -1,4 +1,4 @@
-//! 修复回归验证：2 章流程验证六个修复批次全部生效。
+//! 修复回归验证：2 章流程走查以下七项机制检查全部生效。
 //! 检查点：①装配 token 被压平 ②时间线被维护 ③修为预检抓错 ④写入轻校验
 //! ⑤usage 记录 ⑥待审文本标注 ⑦issues 清单生成。
 //! 运行：cargo run --example regression
@@ -174,8 +174,8 @@ async fn run() -> Result<(), String> {
     }
     check("③修为预检抓到埋错（层级矛盾句）", !found.is_empty(), &mut pass, &mut fail);
 
-    // ④ 写入轻校验：字数不足应被工具拒绝（观察生成日志中是否有[校验未过]不好断言，
-    //    改为直接调 validate_content 单元逻辑已在单测覆盖；此处验证正文长度在区间）
+    // ④ 写入轻校验：字数不足应被工具拒绝（生成日志里的[校验未过]不好断言——该逻辑由
+    //    validate_content 单测覆盖；此处验证正文长度在区间）
     let n = works::read_file(&dir, &ch2)?.chars().count();
     check("④正文长度在轻校验区间（≥1200）", n >= 1200, &mut pass, &mut fail);
 

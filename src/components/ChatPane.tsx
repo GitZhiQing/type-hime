@@ -388,8 +388,8 @@ export function ChatPane({
     setIssueNotice(null);
     busyRef.current = true;
 
-    // R4-⑥：slash 不再前端直调命令——一律作为消息发给 Agent（后端把 /命令 参数
-    // 转成结构化指令块，驱动 run_flow / 直连检查工具，Agent 可汇报阶段门与建议）。
+    // R4-⑥：slash 一律作为消息发给 Agent——后端把 /命令 参数转成结构化指令块
+    // （驱动委派或直连工具）；前端不直调命令。
 
     // 普通对话（@ 引用展开进 prompt）
     // D61：新会话首条消息——登记 id 供加载 effect 跳过（会话切换重载会清掉本轮流式状态）
@@ -661,8 +661,8 @@ export function ChatPane({
         { title: `第 ${ev.iteration} 轮 · ${ev.title}`, state: { text: "", toolCalls: [] } },
       ]);
     }
-    // R9 修复：updater 必须纯函数（不可原地改元素对象）——并行双卡时 SubTask 事件高频
-    // 打断会让 React 重放 updater，非纯原地累加被重复应用（症状：每个 delta 双倍，
+    // updater 必须纯函数（不可原地改元素对象）——并行双卡时 SubTask 事件高频打断会
+    // 让 React 重放 updater，非纯原地累加被重复应用（症状：每个 delta 双倍，
     // 流结束 setMessages 全量替换后恢复）。以下分支全部返回全新对象。
     setRounds((rs) => {
       if (rs.length === 0) return rs;
@@ -794,8 +794,8 @@ export function ChatPane({
       {planSlot && <div className="shrink-0">{planSlot}</div>}
       <Conversation>
         <ConversationContent>
-          {/* 历史渲染（D50 抽为共享组件：子 Agent 会话视图复用同一套只读渲染；
-              D51 带任务行数据——spawn_agent 历史以单行任务卡呈现） */}
+          {/* 历史渲染（共享组件：主聊天与子 Agent 会话视图同一套只读渲染；
+              spawn_agent 历史以单行任务卡呈现） */}
           <ConversationHistory messages={messages} tasks={historyTasks} />
           {rounds.map((r, ri) => {
             const isLast = ri === rounds.length - 1;
@@ -807,9 +807,8 @@ export function ChatPane({
                     {r.title}
                   </div>
                 )}
-                {/* R9-③：流式期 spawn_agent 的过程由子 Agent 运行卡承载（内联到调用位，
-                    R17 间距统一：与普通工具卡同处一个 gap-1.5 流；历史消息仍保留工具卡形态）。
-                    D49：把委派 prompt 传给运行卡——写作上下文（根 Agent 装配）可见清晰 */}
+                {/* 流式期 spawn_agent 的过程由子 Agent 运行卡承载（内联到调用位，与普通工具卡
+                    同处一个 gap-1.5 流）；委派 prompt 传给运行卡——写作上下文（根 Agent 装配）可见清晰 */}
                 {r.state.toolCalls.map((t, i) => {
                   if (t.name !== "spawn_agent") return <ToolCallCard key={i} call={t} />;
                   const seq = roundsSpawnSeq[ri][i];
@@ -822,7 +821,7 @@ export function ChatPane({
                 })}
                 {(r.state.text.trim() !== "" || isLast) && (
                   <Message from="assistant">
-                    {/* D51：生成中改为三点指示器（无整块 pulsing 闪烁） */}
+                    {/* 生成中 = 三点指示器（无整块 pulsing 闪烁） */}
                     <MessageContent>
                       {r.state.text.trim() !== "" ? (
                         <MessageResponse>{r.state.text}</MessageResponse>

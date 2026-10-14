@@ -805,8 +805,8 @@ pub fn chat_flow_runner(
 }
 
 /// slash 指令化（R4-⑥；R8-④ 委派化）：`/命令 参数` → 结构化指令块。
-/// R8 起写作/审校命令是**委派模板**：指引根 Agent 装配上下文并 spawn_agent 委派子 Agent
-/// （原 run_flow 直调退役）；检查类命令仍是直连工具。返回 None 表示不是已知 slash 命令。
+/// 写作/审校命令是**委派模板**：指引根 Agent 装配上下文并 spawn_agent 委派子 Agent；
+/// 检查类命令直连工具。返回 None 表示不是已知 slash 命令。
 pub fn slash_instruction(prompt: &str) -> Option<String> {
     let head = prompt.trim_start();
     if !head.starts_with('/') {
@@ -949,8 +949,7 @@ mod tests {
 
     #[test]
     fn slash_instruction_delegation_templates() {
-        // R8-④ 委派化：写作命令是委派模板（spawn_agent 指引），不再直调 run_flow
-        // R8-④ 委派化：写作命令是委派模板（spawn_agent 指引），不再直调 run_flow
+        // R8-④ 委派化：写作命令是委派模板（spawn_agent 指引）；检查类命令直连工具
         // R16 细纲层：/章纲=场景级细纲（三要素+场景小节）、/正文=两步成稿、/去AI味=30% 重点段落精修
         let s = slash_instruction("/章纲 1 3").unwrap();
         assert!(s.contains("场景级细纲") && s.contains("章三要素") && s.contains("关键对话"), "{s}");
@@ -965,7 +964,7 @@ mod tests {
         assert!(s.contains("spawn_agent"), "{s}");
         assert!(s.contains("volumes/vol-01/chapters/ch-003.md"), "{s}");
         assert!(s.contains("装配") && s.contains("章纲"), "{s}");
-        assert!(!s.contains("run_flow"), "不应再出现 run_flow：{s}");
+        assert!(!s.contains("run_flow"), "不应出现 run_flow：{s}");
 
         // 单数字 = 章号（默认第 1 卷）
         let s = slash_instruction("/一致性 5").unwrap();
@@ -1026,7 +1025,7 @@ mod tests {
         let spec = chat_spec_for_prompt("你好", &dir);
         assert!(spec.skills.contains(&"开书".to_string()), "{:?}", spec.skills);
 
-        // 样章产出 → 开书完成，不再挂载
+        // 样章存在 = 开书完成，不挂载
         std::fs::write(dir.join("style/样章.md"), "样章正文").unwrap();
         assert!(!kickoff_pending(&dir));
         let spec = chat_spec_for_prompt("你好", &dir);
@@ -1197,7 +1196,7 @@ async fn run_flow_request(
     if need_chapter && chapter.trim().is_empty() {
         return Err(format!("{} 需要章号参数（如 ch-003）", req.kind));
     }
-    // 阶段门（现状 flows 不查门，门原先只拦 UI 导航；R4 起 run_flow 触发前补查）
+    // 阶段门校验：flows 本身不查门，run_flow 触发前在此补查
     if let Some(stage) = flow_gate_stage(&req.kind) {
         let p = pipeline::load_pipeline(&work_dir)?;
         p.gate_check(stage, &work_dir)
@@ -1305,7 +1304,7 @@ pub async fn generate_artifact_flow(
         opts.exclude_components = prefs.exclude_components.clone();
     }
 
-    // R3：超预算不再拦截（仅装配软提示）；生成照常进行，由用户按需调档位/预算
+    // 超预算仅装配软提示、不拦截；生成照常，由用户按需调档位/预算
     let assembled = assembly::assemble(&work_dir, &opts)?;
 
     let (file_hint, stage_hint, expect) = if target == "chapter_outline" {

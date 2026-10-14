@@ -21,7 +21,7 @@ import { runNextAction, type NextAction } from "@/lib/nextStep";
  * PLAN 条（替代 StageBar）：聊天输入框上方的可折叠阶段进度条。
  * 折叠=当前阶段+进度点+快捷确认；展开=阶段列表（状态图标 + 阶段名 + 状态 + 重做按钮）。
  * 推进由 Agent/产物状态发起建议、人点确认。
- * R17：下一步文案升级为可点行动按钮（有行动时）——点击直达对应指令/审阅标签。
+ * 有行动时下一步文案即按钮——点击直达对应指令/审阅标签。
  */
 
 interface PlanBarProps {

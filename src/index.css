@@ -162,7 +162,7 @@
 }
 
 /* 浮动动作区（Streamdown 原生 absolute 右上，层级：浮动容器 > actions > button）：
-   去掉盒状边框底色，改为常驻低透明度 + hover 代码块时全显；
+   无盒状边框底色，常驻低透明度 + hover 代码块时全显；
    半透明底保证遮挡长行时仍可读 */
 .md-response [data-streamdown="code-block-actions"] {
   gap: 0;

@@ -2,7 +2,7 @@
 //!
 //! 提示词与 JSON 解析移植自 ZCode（apps/zcode-cli/packages/contracts/src/tools/
 //! target.ts，goal completion verifier），适配三点：
-//! ① 本项目无 TodoWrite 工具 → todo 门禁改为「助手自列的计划/清单未执行完即 fail」；
+//! ① 本项目无 TodoWrite 工具 → todo 门禁为「助手自列的计划/清单未执行完即 fail」；
 //! ② 迭代预算 = 轮数上限（默认 12）+ 可选 token 上限；
 //! ③ 证据源为 rig Message 渲染的会话轨迹（中文写作工作台域）。
 //! 坏 JSON fail-open：验证器是完成闸门，但 provider 偶发格式错误属于裁判链路故障，

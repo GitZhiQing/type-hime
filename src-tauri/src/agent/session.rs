@@ -251,7 +251,7 @@ pub fn list_sessions(store: &SessionStore) -> Result<Vec<SessionMeta>, String> {
     Ok(out)
 }
 
-/// 重命名会话（标题以用户输入为准，不再被自动标题覆盖）。
+/// 重命名会话（重命名后以用户标题为准，自动标题不覆盖）。
 pub fn rename_session(store: &SessionStore, id: &str, title: &str) -> Result<(), String> {
     let title: String = title.trim().chars().take(60).collect();
     if title.is_empty() {
@@ -333,7 +333,7 @@ pub struct ToolCallView {
 
 /// 会话消息序列 → 前端视图（含工具调用配对）。
 /// 工具结果在 rig 中以 User 角色承载（UserContent::ToolResult），按 call_id
-/// 配对到发起它的 Assistant 工具调用上；纯工具结果消息不再输出为独立气泡。
+/// 配对到发起它的 Assistant 工具调用上；纯工具结果消息不作为独立气泡输出。
 pub fn message_views(messages: &[Message]) -> Vec<MessageView> {
     use rig::completion::message::UserContent;
     use rig::completion::AssistantContent;
@@ -383,7 +383,7 @@ pub fn message_views(messages: &[Message]) -> Vec<MessageView> {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                // 纯工具结果消息：配对后不再作为独立气泡输出
+                // 纯工具结果消息：配对到工具调用，不作为独立气泡输出
                 if text.trim().is_empty() {
                     continue;
                 }

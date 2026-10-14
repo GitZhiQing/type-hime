@@ -316,7 +316,7 @@ mod tests {
         assert_eq!(list[0].open_at_vol, Some(2));
         assert!(!is_prompt_visible(&list[0], 1));
 
-        // 改为可见（无开放卷）
+        // 设为可见（无开放卷）
         set_visibility(&dir, &meta.path, Visibility::Visible, None).unwrap();
         let list2 = list_settings(&dir).unwrap();
         assert_eq!(list2[0].visibility, Visibility::Visible);

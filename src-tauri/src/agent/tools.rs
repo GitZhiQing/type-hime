@@ -109,7 +109,7 @@ pub struct AgentSpawnRequest {
 /// flow 执行器：由业务层注入（chat_flow 提供），返回执行摘要。
 /// 出处（R4）：run_flow 必须触发既有 flows 而非让 Agent 手工模拟，
 /// 保住 issues.json 落盘、preflight 注入、装配注入等副作用闭环。
-/// R8-③：chat 工具面退役 run_flow（改由 spawn_agent 委派），此端口保留供 flows 层与示例使用。
+/// 此端口供 flows 层与示例使用（chat 工具面经 spawn_agent 委派，不含 run_flow）。
 pub type FlowRunner = Arc<
     dyn Fn(
             FlowRequest,
@@ -964,8 +964,7 @@ where
 }
 
 /// 按名字构建工具实例（DynamicTool 列表）。
-/// R8-③：run_flow 从 chat 工具面退役（改名 agent:run_flow 供示例/兼容调试显式请求，
-/// 不被任何默认 spec 挂载）——普通路径由 spawn_agent 委派子 Agent 执行。
+/// run_flow 不被任何默认 spec 挂载（仅供示例/调试显式请求）；agent 路径经 spawn_agent 委派。
 pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
     let mut out = Vec::new();
     for name in names {
@@ -976,7 +975,7 @@ pub fn build_tools(ctx: &ToolCtx, names: &[String]) -> Vec<DynamicTool> {
             "propose_edit" => out.push(erase(ProposeEdit { ctx: ctx.clone() })),
             "propose_write" => out.push(erase(ProposeWrite { ctx: ctx.clone() })),
             "bash" => out.push(erase(Bash { ctx: ctx.clone() })),
-            // 保留实现（flows 层与示例可用），chat 默认工具面不再列它
+            // 实现保留（flows 层与示例可用）；默认 spec 不含它
             "run_flow" => out.push(erase(RunFlow { ctx: ctx.clone() })),
             "spawn_agent" => out.push(erase(SpawnAgent { ctx: ctx.clone() })),
             "git_commit" => out.push(erase(GitCommit { ctx: ctx.clone() })),
@@ -1018,7 +1017,7 @@ pub struct ToolMeta {
     pub summary: String,
 }
 
-/// 可被填入子 Agent 白名单的工具全集（spawn_agent 递归硬禁 / run_flow 已退役，不入列）。
+/// 可被填入子 Agent 白名单的工具全集（不含 spawn_agent——递归硬禁；不含 run_flow）。
 pub const TOOL_WHITELIST: &[&str] = &[
     "read_file",
     "propose_edit",
@@ -1220,7 +1219,7 @@ impl Tool for GitCommit {
 }
 
 // ---------------------------------------------------------------------------
-// GetPipeline：流水线状态查询（R8-③：run_flow 阶段硬门退役后的软门数据源）
+// GetPipeline：流水线状态查询（阶段门的软门数据源）
 
 #[derive(Clone)]
 pub struct GetPipelineTool {

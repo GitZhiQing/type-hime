@@ -97,7 +97,7 @@ interface ArtifactsPaneProps {
   refreshKey?: number;
 }
 
-/** 单例制品（同类只开一个标签）；装配预览已退役（R8 起根 Agent 装配委派上下文，D49） */
+/** 单例制品（同类只开一个标签） */
 const SINGLETONS: {
   kind: ArtifactKind;
   title: string;
@@ -111,7 +111,7 @@ const SINGLETONS: {
   { kind: "skills", title: "技能文档", icon: <Settings2 className="size-3" /> },
 ];
 
-/** 持久化里已知 kind 的白名单（装配退役后清残留 tab 用；subagent 存元数据可恢复） */
+/** 持久化里已知 kind 的白名单（过滤持久化的未知 kind；subagent 存元数据可恢复） */
 const KNOWN_KINDS = new Set<ArtifactKind>([
   "doc",
   ...SINGLETONS.map((s) => s.kind),
@@ -135,7 +135,7 @@ function loadTabs(workPath: string): { tabs: ArtifactTab[]; activeId: string } {
     const raw = localStorage.getItem(storageKey(workPath));
     if (raw) {
       const parsed = JSON.parse(raw) as { tabs: ArtifactTab[]; activeId: string };
-      // 过滤已退役/未知 kind 的残留标签（如「装配」），activeId 失效则回落首个
+      // 过滤未知 kind 的持久化标签；activeId 失效则回落首个
       const tabs = Array.isArray(parsed.tabs)
         ? parsed.tabs.filter((t) => KNOWN_KINDS.has(t.kind))
         : [];
@@ -453,7 +453,7 @@ export function ArtifactsPane({
                     setDropAt(null);
                   }}
                   className={cn(
-                    // R14：宽度内容自适应（此前 flex-1 均分容器致少标签时被拉满）；
+                    // 宽度内容自适应（flex-1 均分容器会在少标签时把标签拉满）；
                     // min-w 保底可读、max-w 封顶防长标题独占，超出走横向滚动（shrink-0）
                     "group relative flex min-w-20 max-w-48 shrink-0 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
                     t.id === activeId

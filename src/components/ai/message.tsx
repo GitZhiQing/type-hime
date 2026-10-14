@@ -4,8 +4,8 @@ import { cn } from "cn";
 /**
  * 改编自 Vercel AI Elements 的 Message 组件（源码复制路线，D26 同 Tool）：
  * - 保留：Message / MessageContent（is-user/is-assistant 分组气泡）/ MessageHeader / MessageFooter
- * - 未引入：Streamdown markdown 渲染（当前纯文本 + whitespace-pre-wrap，需要时再引入）、
- *   Branch 分支（后置）、Action 工具条（后置）
+ * - 文本 = 纯文本 + whitespace-pre-wrap（markdown 渲染由 Response/streamdown 承担）
+ * - 未包含：Branch 分支、Action 工具条（需要时再加）
  */
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -71,7 +71,7 @@ export const MessageFooter = ({
   />
 );
 
-/** 消息文本（保留换行；后续引入 markdown 渲染时替换此组件） */
+/** 消息文本（保留换行） */
 export const MessageText = ({ text }: { text: string }) => (
   <div className="whitespace-pre-wrap text-sm leading-relaxed">{text}</div>
 );

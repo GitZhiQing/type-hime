@@ -25,7 +25,7 @@ import { toast } from "sonner";
 
 /**
  * 作品库（D56 重设计）：书架式布局——每部作品是一本「书」（封面卡：书名竖排 + 书脊色条），
- * 网格排列、悬停上浮；整页可滚动（此前 fixed 高度 + 纵向居中，作品一多就溢出窗口）。
+ * 网格排列、悬停上浮；整页可滚动（作品多时不溢出窗口）。
  * 新建作品可指定工作区（文件夹）；D57：卡片菜单支持重命名/复制路径/删除（删除=移入 _回收站）。
  */
 
@@ -220,7 +220,7 @@ export function Launcher() {
   }
 
   return (
-    /* D56：h-full + overflow-y-auto——作品变多时整页滚动，不再溢出窗口 */
+    /* h-full + overflow-y-auto——作品多时整页滚动、不溢出窗口 */
     <div className="h-full overflow-y-auto bg-background">
       <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6 px-8 py-10">
         <div className="flex flex-col items-center gap-2">

@@ -15,9 +15,9 @@ import {
 import { CodeHighlight, prettyMaybeJson } from "@/components/ai/code-highlight";
 
 /**
- * 工具调用气泡（改编自 Vercel AI Elements 的 Tool 组件，D26 路线；D51 重构）：
+ * 工具调用气泡（改编自 Vercel AI Elements 的 Tool 组件，D26 路线）：
  * - 中文工具名 + 关键参数摘要常显（如「读取文件 · outline/总纲.md」）
- * - **默认折叠**（用户反馈：不再运行中自动展开）；展开后直接展示**原始 JSON 参数**
+ * - **默认折叠**（含运行中）；展开后直接展示**原始 JSON 参数**
  *   （JSON 语法高亮；空参数显示「无参数」）与结果（限高滚动）
  * - 历史会话（load_session_view 的结构化 tool_calls）与流式事件共用本组件
  */

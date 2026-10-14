@@ -605,8 +605,8 @@ where
         }
     });
     let prop: ProposalSink = Arc::new(move |p: &Proposal| {
-        // payload 直接嵌入对象（与 Tauri emit 的语义一致）；
-        // 此前双重编码（对象→字符串→再包 JSON）使前端 EventSource 拿到字符串，字段全失效
+        // payload 直接嵌入对象（与 Tauri emit 的语义一致）——
+        // 双重编码（对象→字符串→再包 JSON）会让前端 EventSource 拿到字符串、字段全失效
         let _ = bcast.send(json!({"event": "review:new", "payload": p}).to_string());
     });
 

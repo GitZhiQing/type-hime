@@ -66,8 +66,7 @@ export function AgentTaskRow({ data }: { data: AgentTaskRowData }) {
       ) : (
         <span className="shrink-0 text-xs font-medium">子任务</span>
       )}
-      {/* 标题（D52 用户反馈）：有子会话档案时标题即链接按钮——点击打开制品栏子会话标签
-          （此前只有右侧小图标，点击目标太小）；无档案时纯文本 */}
+      {/* 标题即链接按钮（有子会话档案时）——点击打开制品栏子会话标签；无档案时纯文本 */}
       {data.session ? (
         <button
           type="button"

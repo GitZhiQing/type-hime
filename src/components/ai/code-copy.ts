@@ -47,7 +47,7 @@ export function installCodeCopyEnhancer() {
       const target = e.target as HTMLElement | null;
       const btn = target?.closest?.('[data-streamdown="code-block-copy-button"]');
       if (!btn) return;
-      // 阻断 Streamdown 自身的处理（其 check 态与静默失败都不再使用）
+      // 阻断 Streamdown 自身的处理（避免其内部 check 态与静默失败路径）
       e.preventDefault();
       e.stopPropagation();
       const block = btn.closest('[data-streamdown="code-block"]');

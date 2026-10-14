@@ -134,7 +134,7 @@ impl PipelineState {
                 ));
             }
         }
-        // 产物存在性（已确认过的阶段不再重复校验）
+        // 产物存在性（已确认的阶段不重复校验）
         if let Some(artifact) = target.artifact() {
             if !self.confirmed.contains(&target) {
                 let path = work_dir.join(artifact);

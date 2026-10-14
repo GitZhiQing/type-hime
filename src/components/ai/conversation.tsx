@@ -8,7 +8,7 @@ import { cn } from "cn";
 /**
  * 改编自 Vercel AI Elements 的 Conversation 组件（源码复制路线，D26 同 Tool）：
  * 基于 use-stick-to-bottom（AI SDK 生态标准粘底滚动，1.1.6）——用户上翻阅读时
- * 不再被新消息强制滚到底；滚回底部附近自动恢复粘底。
+ * 不被新消息拽底；滚回底部附近自动恢复粘底。
  */
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;

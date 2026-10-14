@@ -90,7 +90,7 @@ pub struct AssemblyOptions {
     pub volume: u32,
     /// 目标章节 id（如 ch-001）
     pub chapter: String,
-    /// 设定条目档位（R3 起精确生效，不再自动降档）
+    /// 设定条目档位（精确生效，不自动降档）
     pub setting_detail: Detail,
     /// token 预算（R3 起仅用于软提示）
     pub token_budget: u64,
@@ -153,11 +153,11 @@ pub struct AssemblyResult {
     /// 被可见性红线过滤掉的条目数（审计展示）
     pub filtered_by_visibility: usize,
     pub total_tokens: u64,
-    /// 超预算标记（R3 起仅软提示：不拦截、不自动降档，用户可自行调档位/预算）
+    /// 超预算标记（仅软提示：不拦截、不自动降档，用户可自行调档位/预算）
     pub over_budget: bool,
     /// 软提示文本（超预算说明等）；None = 无警告
     pub warning: Option<String>,
-    /// 实际生效的档位（R3 起 == 请求档位，不再自动降档）
+    /// 实际生效的档位（== 请求档位，不自动降档）
     pub applied_detail: String,
     /// 出场过滤后保留的设定条目名（cast_filter 生效时）
     pub cast: Vec<String>,
@@ -172,7 +172,7 @@ fn read_stripped(work_dir: &Path, rel: &str) -> Option<String> {
 }
 
 /// 装配（预览与实际生成共用同一出口）。
-/// R3 语义：请求档位精确生效，不再静默自动降档；超预算仅返回 warning 软提示
+/// 请求档位精确生效（不自动降档）；超预算仅返回 warning 软提示
 /// （可见性过滤仍为出口强制红线，不受档位/预算影响）。
 pub fn assemble(work_dir: &Path, opts: &AssemblyOptions) -> Result<AssemblyResult, String> {
     let mut result = assemble_at(work_dir, opts, opts.setting_detail)?;
@@ -485,13 +485,13 @@ mod tests {
         assert!(all2.contains("林晚"));
         assert!(!all2.contains("剑心通明"), "仅名称档不进条目正文");
 
-        // 预算极小 + 请求 Full：不降档不拦截，仅软提示（R3 语义）
+        // 预算极小 + 请求 Full：不降档不拦截，仅软提示
         let mut opts2 = AssemblyOptions::default();
         opts2.chapter = "ch-002".into();
         opts2.token_budget = 10;
         let r3 = assemble(&dir, &opts2).unwrap();
         assert!(r3.over_budget);
-        assert_eq!(r3.applied_detail, "full", "请求档位精确生效，不再自动降档");
+        assert_eq!(r3.applied_detail, "full", "请求档位精确生效（不自动降档）");
         assert!(r3.warning.is_some(), "超预算应返回软提示");
         assert!(render_prompt(&r3).contains("剑心通明"), "内容仍按请求档位装配");
 
