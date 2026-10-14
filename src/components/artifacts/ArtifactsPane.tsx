@@ -222,17 +222,29 @@ export function ArtifactsPane({
     return () => window.removeEventListener("delegation:new", onDelegation);
   }, []);
 
-  // 委派会话直达（D49：任务卡上的入口按钮）——激活对应标签（不存在则忽略，如历史回放）
+  // 委派会话直达（D50/D51：任务卡或历史任务行的入口按钮）——标签不存在则由事件元数据补建
+  // （localStorage 被清/换机器后历史任务行仍可打开；缺 session 元数据则忽略）
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
-      if (!id) return;
-      const tabId = `sub:${id}`;
-      setTabState((cur) =>
-        cur.tabs.some((t) => t.id === tabId) && cur.activeId !== tabId
-          ? { ...cur, activeId: tabId }
-          : cur,
-      );
+      const d = (e as CustomEvent<DelegationPayload>).detail;
+      if (!d?.id) return;
+      const tabId = `sub:${d.id}`;
+      setTabState((cur) => {
+        const existing = cur.tabs.find((t) => t.id === tabId);
+        if (existing) {
+          if (cur.activeId === tabId && existing.payload?.session === d.session) return cur;
+          return {
+            tabs: cur.tabs.map((t) => (t.id === tabId ? { ...t, payload: { ...t.payload, ...d } } : t)),
+            activeId: tabId,
+          };
+        }
+        if (!d.session) return cur; // 无档案可看：不动
+        const title = `${d.agent ?? "子Agent"}·${d.label.slice(0, 10)}`;
+        return {
+          tabs: [...cur.tabs, { id: tabId, kind: "subagent", title, payload: d }],
+          activeId: tabId,
+        };
+      });
     };
     window.addEventListener("delegation:open", onOpen);
     return () => window.removeEventListener("delegation:open", onOpen);

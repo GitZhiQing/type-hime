@@ -33,6 +33,71 @@ fn merge_usage(
     }
 }
 
+/// 子任务事件记录器（D51）：包装事件 sink，把 SubTask* 事件汇聚为会话档案的 subtasks 行
+/// （ZCode SubagentRow 同语义）——重载后历史仍以任务卡呈现、可打开子会话档案。
+/// 透传给内层 sink，事件流行为不变。
+fn recording_sink(
+    inner: &EventSink,
+) -> (EventSink, Arc<Mutex<Vec<session::SubTaskRecord>>>) {
+    let inner = Arc::clone(inner);
+    let rows: Arc<Mutex<Vec<session::SubTaskRecord>>> = Arc::new(Mutex::new(Vec::new()));
+    let rec = Arc::clone(&rows);
+    let sink: EventSink = Arc::new(move |ev: AgentEvent| {
+        {
+            let mut r = rec.lock().unwrap();
+            match &ev {
+                AgentEvent::SubTaskStart {
+                    id,
+                    label,
+                    agent,
+                    session,
+                    ..
+                } => {
+                    if !r.iter().any(|x| &x.id == id) {
+                        r.push(session::SubTaskRecord {
+                            id: id.clone(),
+                            agent: agent.clone(),
+                            label: label.clone(),
+                            session: session.clone(),
+                            status: "running".to_string(),
+                            summary: None,
+                            tokens: None,
+                            duration_ms: None,
+                        });
+                    }
+                }
+                AgentEvent::SubTaskEnd {
+                    id,
+                    status,
+                    summary,
+                    tokens,
+                    duration_ms,
+                } => {
+                    if let Some(row) = r.iter_mut().find(|x| &x.id == id) {
+                        row.status = status.clone();
+                        row.summary = Some(summary.clone());
+                        row.tokens = *tokens;
+                        row.duration_ms = *duration_ms;
+                    }
+                }
+                _ => {}
+            }
+        }
+        inner(ev);
+    });
+    (sink, rows)
+}
+
+/// 把记录到的子任务行并入会话档案（消息落档成功后调用，失败静默）。
+fn merge_recorded_tasks(
+    store: &SessionStore,
+    session_id: &str,
+    rows: &Arc<Mutex<Vec<session::SubTaskRecord>>>,
+) {
+    let snapshot = rows.lock().unwrap().clone();
+    let _ = session::merge_subtasks(store, session_id, &snapshot);
+}
+
 /// 通用会话运行（chat / tidy 等单 prompt 场景）。
 async fn run_and_save_session(
     sess_id: String,
@@ -249,6 +314,8 @@ pub async fn chat_flow(
     };
     let spec = chat_spec_for_prompt(&prompt, &work_dir);
     let store = SessionStore::Work(work_dir.clone());
+    // D51：子任务行记录（任务卡历史持久化）——包装 sink 后全链路沿用
+    let (on_event, sub_rows) = recording_sink(&on_event);
     let tool_ctx = chat_tool_ctx(
         queue,
         approval.clone(),
@@ -266,17 +333,21 @@ pub async fn chat_flow(
     run_and_save_session(session_id.clone(), &store, Some(&tool_ctx), &spec, &prompt, &on_event)
         .await?;
     autotitle(&store, &session_id).await;
+    merge_recorded_tasks(&store, &session_id, &sub_rows);
     if goal_active {
-        goal_loop(
+        let r = goal_loop(
             queue,
             approval,
             work_dir,
-            session_id,
+            session_id.clone(),
             prompt,
             on_event,
             on_proposal,
         )
-        .await?;
+        .await;
+        // 迭代轮内的委派同样落档（失败轮也不丢已完成的子任务元数据）
+        merge_recorded_tasks(&store, &session_id, &sub_rows);
+        r?;
     }
     Ok(())
 }

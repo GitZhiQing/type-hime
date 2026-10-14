@@ -28,8 +28,32 @@ impl Session {
             messages: Vec::new(),
             usage: None,
             last_usage: None,
+            subtasks: Vec::new(),
         }
     }
+}
+
+/// 子任务行（D51）：SubTask* 事件汇聚落档（ZCode SubagentRow 同语义）——
+/// 重载后历史仍以任务卡呈现、可打开子会话档案。
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct SubTaskRecord {
+    /// 任务 id（st-N；与子会话档案名 agent-{名}-{id} 同源）
+    pub id: String,
+    /// 子 Agent 名（None=普通子任务）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    pub label: String,
+    /// 子会话档案 id（D50 贯通；前端据此回看）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// running | done | error
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -55,6 +79,9 @@ pub struct Session {
     /// 最近一轮用量（R3：窗口占用口径 = 最近一轮 input_tokens ≈ 当前对话历史大小）
     #[serde(default)]
     pub last_usage: Option<crate::agent::kernel::UsageReport>,
+    /// 子任务行（D51：spawn_agent 委派的历史记录；旧档无此字段按空表读取）
+    #[serde(default)]
+    pub subtasks: Vec<SubTaskRecord>,
 }
 
 /// 会话列表项（前端展示与搜索过滤；title 已做回退填充）。
@@ -154,6 +181,26 @@ pub fn load_session(store: &SessionStore, id: &str) -> Result<Session, String> {
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取会话失败：{e}"))?;
     serde_json::from_str(&raw).map_err(|e| format!("解析会话失败：{e}"))
+}
+
+/// 子任务行并入会话档案（D51）：同 id 覆盖（状态/用时更新）、新 id 追加，保持出现顺序。
+/// 在消息落档成功后调用（避免孤儿行）；失败静默（记录是增强信息，不阻断会话保存）。
+pub fn merge_subtasks(
+    store: &SessionStore,
+    session_id: &str,
+    rows: &[SubTaskRecord],
+) -> Result<(), String> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut sess = load_session(store, session_id)?;
+    for row in rows {
+        match sess.subtasks.iter_mut().find(|x| x.id == row.id) {
+            Some(existing) => *existing = row.clone(),
+            None => sess.subtasks.push(row.clone()),
+        }
+    }
+    save_session(store, &sess)
 }
 
 /// 内部会话前缀（子 Agent 与生成/审校流程的独立档案）：不进入用户会话列表，
@@ -520,6 +567,46 @@ mod tests {
         // load_or_new：不存在的会话返回新建骨架
         let fresh = load_or_new_session(&store, "no-such").unwrap();
         assert!(fresh.messages.is_empty() && fresh.goal.is_none());
+
+        let _ = std::fs::remove_dir_all(store.dir().unwrap());
+    }
+
+    /// D51：子任务行并入（同 id 覆盖、新 id 追加、旧档兼容）。
+    #[test]
+    fn merge_subtasks_upsert_roundtrip() {
+        let store = temp_store("subtasks");
+        // 旧档（无 subtasks 字段）可解析为空表
+        let raw = r#"{"id":"old-s","created_at":"2026-10-13T10:00:00","messages":[]}"#;
+        std::fs::write(store.dir().unwrap().join("old-s.json"), raw).unwrap();
+        assert!(load_session(&store, "old-s").unwrap().subtasks.is_empty());
+
+        let running = SubTaskRecord {
+            id: "st-1".into(),
+            agent: Some("general".into()),
+            label: "写第 2 章正文".into(),
+            session: Some("agent-general-st-1".into()),
+            status: "running".into(),
+            summary: None,
+            tokens: None,
+            duration_ms: None,
+        };
+        merge_subtasks(&store, "old-s", std::slice::from_ref(&running)).unwrap();
+        // 完成态覆盖同 id 行（不重复追加）
+        let done = SubTaskRecord {
+            status: "done".into(),
+            summary: Some("完成汇报".into()),
+            tokens: Some(20480),
+            duration_ms: Some(33000),
+            ..running.clone()
+        };
+        merge_subtasks(&store, "old-s", &[done.clone()]).unwrap();
+        let s = load_session(&store, "old-s").unwrap();
+        assert_eq!(s.subtasks.len(), 1);
+        assert_eq!(s.subtasks[0].status, "done");
+        assert_eq!(s.subtasks[0].tokens, Some(20480));
+        assert_eq!(s.subtasks[0].session.as_deref(), Some("agent-general-st-1"));
+        // 空表调用是 no-op（会话不存在也不报错前提：存在时无副作用）
+        merge_subtasks(&store, "old-s", &[]).unwrap();
 
         let _ = std::fs::remove_dir_all(store.dir().unwrap());
     }

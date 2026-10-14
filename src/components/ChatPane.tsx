@@ -6,6 +6,7 @@ import {
   AgentEvent,
   MessageView,
   Proposal,
+  SubTaskRecord,
   PermissionMode,
   TreeNode,
 } from "@/lib/tauri";
@@ -30,6 +31,7 @@ import {
 import { Message, MessageContent } from "@/components/ai/message";
 import { MessageResponse } from "@/components/ai/response";
 import { ConversationHistory } from "@/components/ai/ConversationHistory";
+import { TypingDots } from "@/components/ai/typing-dots";
 import {
   PromptInput,
   PromptInputBody,
@@ -122,6 +124,8 @@ export function ChatPane({
   const [subtasks, setSubtasks] = useState<TaskView[]>([]);
   /** 审校类子任务完成后的问题摘要卡（R5-③：点击跳问题清单制品标签） */
   const [issueNotice, setIssueNotice] = useState<{ open: number; total: number } | null>(null);
+  /** 会话档案的子任务行（D51：历史渲染的任务卡数据源；随会话加载/轮次结束刷新） */
+  const [historyTasks, setHistoryTasks] = useState<SubTaskRecord[]>([]);
   /** 当前会话权限档位（R4-③：输入框左下角下拉；scope=work） */
   const [permMode, setPermMode] = useState<PermissionMode>("confirm");
   /** 轮次计数（R10：一轮完成 +1，驱动输入框下方上下文用量刷新） */
@@ -166,6 +170,7 @@ export function ChatPane({
 
   useEffect(() => {
     setRounds([]);
+    setHistoryTasks([]);
     if (!sessionId) {
       setMessages([]);
       return;
@@ -174,6 +179,13 @@ export function ChatPane({
       ? api.loadSessionView(workPath!, sessionId)
       : api.loadSessionViewGlobal(sessionId);
     p.then(setMessages).catch(() => setMessages([]));
+    // D51：会话档案的子任务行（历史任务卡渲染与标签直达的数据源；全局会话无此数据）
+    if (isWork) {
+      api
+        .loadSessionTasks(workPath!, sessionId)
+        .then(setHistoryTasks)
+        .catch(() => setHistoryTasks([]));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, workPath, sessionId]);
 
@@ -354,6 +366,13 @@ export function ChatPane({
         ? await api.loadSessionView(workPath!, sid)
         : await api.loadSessionViewGlobal(sid);
       setMessages(view);
+      // D51：同轮刷新任务行档案（轮内委派完成后历史任务的元数据已落档）
+      if (isWork) {
+        api
+          .loadSessionTasks(workPath!, sid)
+          .then(setHistoryTasks)
+          .catch(() => {});
+      }
       setRounds([]);
       onTurnDone();
     } catch (e) {
@@ -455,6 +474,7 @@ export function ChatPane({
           summary: null,
           agent: ev.agent ?? null,
           color: ev.color ?? null,
+          session: ev.session ?? null,
         },
       ]);
     } else if (ev.type === "sub_task_delta") {
@@ -665,8 +685,9 @@ export function ChatPane({
     <div className="flex h-full flex-col">
       <Conversation>
         <ConversationContent>
-          {/* 历史渲染（D50 抽为共享组件：子 Agent 会话视图复用同一套只读渲染） */}
-          <ConversationHistory messages={messages} />
+          {/* 历史渲染（D50 抽为共享组件：子 Agent 会话视图复用同一套只读渲染；
+              D51 带任务行数据——spawn_agent 历史以单行任务卡呈现） */}
+          <ConversationHistory messages={messages} tasks={historyTasks} />
           {rounds.map((r, ri) => {
             const isLast = ri === rounds.length - 1;
             return (
@@ -692,8 +713,13 @@ export function ChatPane({
                 })}
                 {(r.state.text.trim() !== "" || isLast) && (
                   <Message from="assistant">
-                    <MessageContent pulsing={isLast}>
-                      <MessageResponse>{r.state.text || "…"}</MessageResponse>
+                    {/* D51：生成中改为三点指示器（无整块 pulsing 闪烁） */}
+                    <MessageContent>
+                      {r.state.text.trim() !== "" ? (
+                        <MessageResponse>{r.state.text}</MessageResponse>
+                      ) : (
+                        <TypingDots />
+                      )}
                     </MessageContent>
                   </Message>
                 )}

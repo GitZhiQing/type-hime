@@ -324,6 +324,19 @@ fn load_session_view(work_path: String, session_id: String) -> Result<Vec<sessio
     Ok(session::message_views(&s.messages))
 }
 
+/// 会话的子任务行（D51：spawn_agent 委派历史——历史任务卡渲染与子会话标签直达的数据源）。
+#[tauri::command]
+fn load_session_tasks(
+    work_path: String,
+    session_id: String,
+) -> Result<Vec<session::SubTaskRecord>, String> {
+    let s = session::load_session(
+        &session::SessionStore::Work(PathBuf::from(work_path)),
+        &session_id,
+    )?;
+    Ok(s.subtasks)
+}
+
 #[tauri::command]
 fn list_sessions_global() -> Result<Vec<session::SessionMeta>, String> {
     session::list_sessions(&session::SessionStore::Global)
@@ -833,6 +846,7 @@ pub fn run() {
             rename_session,
             delete_session,
             load_session_view,
+            load_session_tasks,
             list_sessions_global,
             rename_session_global,
             delete_session_global,

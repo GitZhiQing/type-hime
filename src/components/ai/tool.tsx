@@ -12,12 +12,13 @@ import {
   WrenchIcon,
   XCircleIcon,
 } from "lucide-react";
-import type { ComponentProps } from "react";
+import { CodeHighlight, prettyMaybeJson } from "@/components/ai/code-highlight";
 
 /**
- * 工具调用气泡（改编自 Vercel AI Elements 的 Tool 组件，D26 路线；R3.5 优化）：
+ * 工具调用气泡（改编自 Vercel AI Elements 的 Tool 组件，D26 路线；D51 重构）：
  * - 中文工具名 + 关键参数摘要常显（如「读取文件 · outline/总纲.md」）
- * - 展开查看参数（键值列表，超大字段折叠为字数提示）与结果（限高滚动）
+ * - **默认折叠**（用户反馈：不再运行中自动展开）；展开后直接展示**原始 JSON 参数**
+ *   （JSON 语法高亮；空参数显示「无参数」）与结果（限高滚动）
  * - 历史会话（load_session_view 的结构化 tool_calls）与流式事件共用本组件
  */
 
@@ -53,10 +54,6 @@ export function toolLabel(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
-/** 大字段不直接渲染（展示字数摘要） */
-const LARGE_FIELDS = new Set(["new_content", "content"]);
-const MAX_INLINE = 300;
-
 function safeParse(raw: string): unknown {
   try {
     return JSON.parse(raw);
@@ -82,24 +79,21 @@ export function toolSummary(args: string): string {
   return parts.join(" · ");
 }
 
-/** 参数键值行（跳过超大字段，标注字数） */
-function argEntries(args: string): { key: string; value: string; note?: string }[] {
-  const parsed = safeParse(args);
-  if (typeof parsed !== "object" || parsed === null) {
-    return [{ key: "原始参数", value: String(parsed).slice(0, MAX_INLINE) }];
-  }
-  return Object.entries(parsed as Record<string, unknown>).map(([key, v]) => {
-    if (LARGE_FIELDS.has(key) && typeof v === "string") {
-      return { key, value: "", note: `全文 ${v.length} 字（已折叠，见对应提议卡片）` };
-    }
-    const s = typeof v === "string" ? v : JSON.stringify(v);
-    return { key, value: s.length > MAX_INLINE ? s.slice(0, MAX_INLINE) + "…" : s };
-  });
+/** 参数是否为空（无参数工具 / 空 JSON 对象）：展示「无参数」而非空块 */
+export function isEmptyArgs(args: string): boolean {
+  const t = args.trim();
+  if (t === "" || t === "{}" || t === "null" || t === "[]") return true;
+  const parsed = safeParse(t);
+  return (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    !Array.isArray(parsed) &&
+    Object.keys(parsed as Record<string, unknown>).length === 0
+  );
 }
 
 export type ToolCallCardProps = {
   call: ToolCallData;
-  /** 流式运行中（结果未到）：默认展开参数 */
   className?: string;
 };
 
@@ -107,11 +101,10 @@ export function ToolCallCard({ call, className }: ToolCallCardProps) {
   const running = call.result === null;
   const error = !running && !!call.isError;
   const summary = toolSummary(call.args);
-  const entries = argEntries(call.args);
+  const emptyArgs = isEmptyArgs(call.args);
 
   return (
     <Collapsible
-      defaultOpen={running}
       className={cn("group w-full rounded-md border bg-muted/20", className)}
     >
       <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
@@ -125,7 +118,7 @@ export function ToolCallCard({ call, className }: ToolCallCardProps) {
         <span className="ml-auto shrink-0">
           {running ? (
             <Badge className="gap-1 rounded-full text-[10px]" variant="secondary">
-              <ClockIcon className="size-3 animate-pulse" />
+              <ClockIcon className="size-3" />
               运行中
             </Badge>
           ) : error ? (
@@ -148,20 +141,11 @@ export function ToolCallCard({ call, className }: ToolCallCardProps) {
             <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
               参数
             </div>
-            {call.name === "spawn_agent" ? (
-              <SpawnAgentArgs args={call.args} />
+            {emptyArgs ? (
+              <div className="text-[11px] text-muted-foreground/70 italic">无参数</div>
             ) : (
-              <div className="space-y-0.5">
-                {entries.map((e) => (
-                  <div key={e.key} className="flex gap-2 text-[11px]">
-                    <span className="shrink-0 font-mono text-muted-foreground">{e.key}</span>
-                    {e.note ? (
-                      <span className="text-muted-foreground/70 italic">{e.note}</span>
-                    ) : (
-                      <span className="min-w-0 break-all whitespace-pre-wrap">{e.value}</span>
-                    )}
-                  </div>
-                ))}
+              <div className="max-h-52 overflow-auto rounded-sm bg-muted/50 p-1.5">
+                <CodeHighlight text={prettyMaybeJson(call.args)} />
               </div>
             )}
           </div>
@@ -176,7 +160,11 @@ export function ToolCallCard({ call, className }: ToolCallCardProps) {
                   error ? "bg-destructive/10 text-destructive" : "bg-muted/50",
                 )}
               >
-                <Code pre={prettyResult(call.result)} />
+                {error ? (
+                  <Code pre={call.result ?? ""} />
+                ) : (
+                  <CodeHighlight text={prettyMaybeJson(call.result ?? "")} />
+                )}
               </div>
             </div>
           )}
@@ -186,62 +174,12 @@ export function ToolCallCard({ call, className }: ToolCallCardProps) {
   );
 }
 
-/** 结果美化：JSON 字符串则缩进展示，否则原样 */
-function prettyResult(result: string | null): string {
-  if (result === null) return "";
-  const parsed = safeParse(result);
-  if (typeof parsed === "string") return parsed;
-  return JSON.stringify(parsed, null, 2);
-}
-
-/**
- * spawn_agent 参数可读化（D49）：委派 prompt 就是子 Agent 收到的全部上下文，
- * 不再以截断 JSON 键值展示——短字段照常键值行，prompt 单独成可读块（限高滚动）。
- */
-export function SpawnAgentArgs({ args }: { args: string }) {
-  const parsed = safeParse(args);
-  const o =
-    typeof parsed === "object" && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : {};
-  const rows: [string, string][] = [];
-  for (const key of ["subagent", "description"]) {
-    const v = o[key];
-    if (typeof v === "string" && v) rows.push([key, v]);
-  }
-  const prompt = typeof o.prompt === "string" ? o.prompt : "";
-  return (
-    <div className="space-y-1.5">
-      {rows.length > 0 && (
-        <div className="space-y-0.5">
-          {rows.map(([k, v]) => (
-            <div key={k} className="flex gap-2 text-[11px]">
-              <span className="shrink-0 font-mono text-muted-foreground">{k}</span>
-              <span className="min-w-0 break-all">{v}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {prompt && (
-        <div>
-          <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground">
-            委派指令（子 Agent 收到的全部上下文）
-          </div>
-          <div className="max-h-64 overflow-auto rounded-sm bg-muted/50 p-1.5">
-            <Code pre={prompt} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 轻量代码块 */
+/** 轻量代码块（非 JSON 结果/错误文本的等宽展示；JSON 走 CodeHighlight） */
 export function Code({
   pre,
   className,
   ...props
-}: { pre: string } & ComponentProps<"pre">) {
+}: { pre: string } & React.ComponentProps<"pre">) {
   return (
     <pre
       className={cn(

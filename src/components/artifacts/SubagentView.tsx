@@ -12,6 +12,7 @@ import {
 import { AGENT_BADGE, AGENT_DOT, resolveAgentColor } from "@/lib/agent-colors";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { cn } from "cn";
+import { TypingDots } from "@/components/ai/typing-dots";
 import type { DelegationPayload } from "@/components/artifacts/ArtifactsPane";
 
 /**
@@ -161,8 +162,12 @@ export function SubagentView({
               ))}
               {(d.text.trim() !== "" || d.status === "running") && (
                 <Message from="assistant">
-                  <MessageContent pulsing={d.status === "running"}>
-                    <MessageResponse>{d.text.trim() !== "" ? d.text : "…"}</MessageResponse>
+                  <MessageContent>
+                    {d.text.trim() !== "" ? (
+                      <MessageResponse>{d.text}</MessageResponse>
+                    ) : (
+                      <TypingDots />
+                    )}
                   </MessageContent>
                 </Message>
               )}

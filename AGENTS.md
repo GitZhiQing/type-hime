@@ -11,7 +11,7 @@ pnpm tauri dev          # 完整桌面应用开发模式（Rust + 前端热更�
 pnpm build              # 前端类型检查 + 构建（tsc && vite build）
 cd src-tauri
 cargo check             # Rust 编译检查（警告保持 0）
-cargo test              # Rust 单测（74 项：git/works/pipeline/lore/ledger/assembly/settings/issues/preflight/session/kernel/approval/bash/permissions/subtask/skills/flows/goal/profiles）
+cargo test              # Rust 单测（75 项：git/works/pipeline/lore/ledger/assembly/settings/issues/preflight/session/kernel/approval/bash/permissions/subtask/skills/flows/goal/profiles）
 cargo run --example chat_smoke -- <作品目录>      # 冒烟：模型列表+流式+工具+会话+提议
 cargo run --example full_flow -- <作品目录>       # 冒烟：章纲→正文→账本回写
 cargo run --example mvp_flow                       # 交付判据验收（真实模型全流程）

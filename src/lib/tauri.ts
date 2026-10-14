@@ -314,6 +314,18 @@ export interface MessageView {
   tool_calls: ToolCallView[];
 }
 
+/** 会话档案的子任务行（D51：spawn_agent 委派历史——历史任务卡与子会话标签的数据源） */
+export interface SubTaskRecord {
+  id: string;
+  agent?: string | null;
+  label: string;
+  session?: string | null;
+  status: "running" | "done" | "error";
+  summary?: string | null;
+  tokens?: number | null;
+  duration_ms?: number | null;
+}
+
 export interface ToolCallView {
   name: string;
   args: string;
@@ -510,6 +522,8 @@ export const api = {
 
   // diff 审阅
   listProposals: () => call<Proposal[]>("list_proposals"),
+  loadSessionTasks: (workPath: string, sessionId: string) =>
+    call<SubTaskRecord[]>("load_session_tasks", { workPath, sessionId }),
   applyProposal: (workPath: string, id: number) =>
     call<string>("apply_proposal", { workPath, id }),
   rejectProposal: (id: number, comment?: string) =>

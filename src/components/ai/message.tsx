@@ -25,15 +25,11 @@ export const Message = ({ className, from, ...props }: MessageProps) => (
   />
 );
 
-export type MessageContentProps = HTMLAttributes<HTMLDivElement> & {
-  /** 流式输出中的脉冲提示 */
-  pulsing?: boolean;
-};
+export type MessageContentProps = HTMLAttributes<HTMLDivElement>;
 
 export const MessageContent = ({
   children,
   className,
-  pulsing,
   ...props
 }: MessageContentProps) => (
   <div
@@ -43,7 +39,6 @@ export const MessageContent = ({
       "group-[.is-user]:ml-auto group-[.is-user]:rounded-2xl group-[.is-user]:bg-muted group-[.is-user]:px-3.5 group-[.is-user]:py-2 group-[.is-user]:text-foreground",
       // AI 消息：无背景气泡，内容全宽直排
       "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
-      pulsing && "animate-pulse",
       className,
     )}
     {...props}
