@@ -95,7 +95,7 @@ export function TaskCard({ task }: { task: TaskView }) {
         {task.status !== "running" && (task.durationMs != null || task.tokens != null) && (
           <span className="ml-1 shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
             {[
-              task.durationMs != null ? `${Math.max(1, Math.round(task.durationMs / 1000))}s` : null,
+              task.durationMs != null ? `${Math.max(1, Math.floor(task.durationMs / 1000))}s` : null,
               task.tokens != null ? `≈${fmtTokens(task.tokens)} tokens` : null,
             ]
               .filter(Boolean)

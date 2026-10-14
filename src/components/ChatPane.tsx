@@ -602,9 +602,13 @@ export function ChatPane({
                     {r.title}
                   </div>
                 )}
-                {r.state.toolCalls.map((t, i) => (
-                  <ToolCallCard key={i} call={t} />
-                ))}
+                {/* R9-③：流式期 spawn_agent 的过程由子 Agent 运行卡承载，主流不重复渲染其工具卡
+                    （历史消息仍保留，便于重载后回看调用参数与返回摘要） */}
+                {r.state.toolCalls
+                  .filter((t) => t.name !== "spawn_agent")
+                  .map((t, i) => (
+                    <ToolCallCard key={i} call={t} />
+                  ))}
                 {(r.state.text.trim() !== "" || isLast) && (
                   <Message from="assistant">
                     <MessageContent pulsing={isLast}>
