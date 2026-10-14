@@ -297,7 +297,7 @@ export function ArtifactsPane({
 
   return (
     <section className="flex h-full min-w-0 flex-col">
-      {/* 标签条（浏览器式）：标签等宽铺开、最小可读宽度（min-w-28）后溢出滚动；
+      {/* 标签条（浏览器式）：标签宽度内容自适应（min-w-20 保底、max-w-48 封顶）溢出滚动；
           隐藏滚动条（.tabbar-scroll），导航靠滚轮 + 边缘箭头 + 标签列表下拉；
           右键菜单（关闭/其他/右侧/全部）与拖拽排序由 Trigger 层承接 */}
       <div className="flex h-9 shrink-0 items-stretch border-b bg-muted/30">
@@ -366,7 +366,9 @@ export function ArtifactsPane({
                     setDropAt(null);
                   }}
                   className={cn(
-                    "group relative flex min-w-28 max-w-56 flex-1 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
+                    // R14：宽度内容自适应（此前 flex-1 均分容器致少标签时被拉满）；
+                    // min-w 保底可读、max-w 封顶防长标题独占，超出走横向滚动（shrink-0）
+                    "group relative flex min-w-20 max-w-48 shrink-0 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
                     t.id === activeId
                       ? "border-t-2 border-t-primary bg-background text-foreground"
                       : "border-t-2 border-t-transparent text-muted-foreground hover:bg-background/60",
