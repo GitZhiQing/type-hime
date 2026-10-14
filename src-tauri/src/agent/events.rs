@@ -55,6 +55,10 @@ pub enum AgentEvent {
         /// 子 Agent 身份色 key（R9：profile.color；None=前端按名 hash 取色）
         #[serde(skip_serializing_if = "Option::is_none")]
         color: Option<String>,
+        /// 子会话档案 id（D50：spawn_agent 贯通；前端据此 loadSessionView 回看真实子会话，
+        /// ZCode SubagentRow.childSessionId 同语义）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session: Option<String>,
     },
     /// 子任务文本增量（子流程的 TextDelta 转发）
     SubTaskDelta { id: String, text: String },

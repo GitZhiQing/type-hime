@@ -67,7 +67,8 @@ export interface DelegationPayload {
   id: string;
   agent?: string | null;
   label: string;
-  prompt?: string | null;
+  /** 子会话档案 id（D50：视图据此 loadSessionView 回看；持久化只存这些元数据，不含 prompt） */
+  session?: string | null;
 }
 
 export interface ArtifactTab {
@@ -110,8 +111,12 @@ const SINGLETONS: {
   { kind: "skills", title: "技能文档", icon: <Settings2 className="size-3" /> },
 ];
 
-/** 持久化里已知 kind 的白名单（装配退役后清残留 tab 用） */
-const KNOWN_KINDS = new Set<ArtifactKind>(["doc", ...SINGLETONS.map((s) => s.kind)]);
+/** 持久化里已知 kind 的白名单（装配退役后清残留 tab 用；subagent 存元数据可恢复） */
+const KNOWN_KINDS = new Set<ArtifactKind>([
+  "doc",
+  ...SINGLETONS.map((s) => s.kind),
+  "subagent",
+]);
 
 function storageKey(workPath: string) {
   return `type-hime-artifacts:${workPath}`;
@@ -175,30 +180,38 @@ export function ArtifactsPane({
   const persist = useCallback(
     (next: { tabs: ArtifactTab[]; activeId: string }) => {
       setTabState(next);
-      try {
-        // 委派标签是会话级数据（payload 不持久化），落盘前剔除
-        const storable = next.tabs.filter((t) => t.kind !== "subagent");
-        localStorage.setItem(
-          storageKey(workPath),
-          JSON.stringify({ tabs: storable, activeId: storable.some((t) => t.id === next.activeId) ? next.activeId : (storable[0]?.id ?? "") }),
-        );
-      } catch {
-        /* 配额满等持久化失败不阻塞 UI */
-      }
     },
-    [workPath],
+    [],
   );
 
-  // 委派上下文标签（D49）：ChatPane 在 SubTaskStart 时按序配对 spawn_agent 的委派 prompt
-  // 并派发 delegation:new——此处登记为制品标签（不抢当前激活）。
+  // 标签状态统一落盘（D50：delegation:new 等直接 setState 的路径也持久化——
+  // 子会话标签靠元数据（agent/label/session id）恢复，重载后可回看档案）
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey(workPath), JSON.stringify({ tabs, activeId }));
+    } catch {
+      /* 配额满等持久化失败不阻塞 UI */
+    }
+  }, [workPath, tabs, activeId]);
+
+  // 委派上下文标签（D50，ZCode subagent-session tab 同构）：ChatPane 在 SubTaskStart 时
+  // 按序配对 spawn_agent 并派发 delegation:new——此处登记/幂等更新制品标签（不抢当前激活）。
   useEffect(() => {
     const onDelegation = (e: Event) => {
       const d = (e as CustomEvent<DelegationPayload>).detail;
       if (!d?.id) return;
+      const tabId = `sub:${d.id}`;
+      const title = `${d.agent ?? "子Agent"}·${d.label.slice(0, 10)}`;
       setTabState((cur) => {
-        const tabId = `sub:${d.id}`;
-        if (cur.tabs.some((t) => t.id === tabId)) return cur;
-        const title = `${d.agent ?? "子Agent"}·${d.label.slice(0, 10)}`;
+        const existing = cur.tabs.find((t) => t.id === tabId);
+        if (existing) {
+          // 幂等：已存在则仅更新标题/元数据（ZCode openSubagentSessionSidePane 同语义）
+          if (existing.title === title) return cur;
+          return {
+            tabs: cur.tabs.map((t) => (t.id === tabId ? { ...t, title, payload: d } : t)),
+            activeId: cur.activeId,
+          };
+        }
         return {
           tabs: [...cur.tabs, { id: tabId, kind: "subagent", title, payload: d }],
           activeId: cur.activeId,
@@ -207,6 +220,22 @@ export function ArtifactsPane({
     };
     window.addEventListener("delegation:new", onDelegation);
     return () => window.removeEventListener("delegation:new", onDelegation);
+  }, []);
+
+  // 委派会话直达（D49：任务卡上的入口按钮）——激活对应标签（不存在则忽略，如历史回放）
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+      if (!id) return;
+      const tabId = `sub:${id}`;
+      setTabState((cur) =>
+        cur.tabs.some((t) => t.id === tabId) && cur.activeId !== tabId
+          ? { ...cur, activeId: tabId }
+          : cur,
+      );
+    };
+    window.addEventListener("delegation:open", onOpen);
+    return () => window.removeEventListener("delegation:open", onOpen);
   }, []);
 
   function closeTab(id: string) {
@@ -602,7 +631,7 @@ export function ArtifactsPane({
         ) : active.kind === "skills" ? (
           <SkillsView workPath={workPath} />
         ) : active.kind === "subagent" ? (
-          <SubagentView payload={active.payload} />
+          <SubagentView workPath={workPath} payload={active.payload} />
         ) : (
           <Placeholder label={`${active.title}视图（未知类型）`} />
         )}

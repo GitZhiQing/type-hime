@@ -172,7 +172,7 @@ export type AgentEvent =
   | { type: "error"; message: string }
   | { type: "approval_request"; id: number; tool: string; title: string; detail: string }
   | { type: "approval_resolved"; id: number; allowed: boolean; note: string | null }
-  | { type: "sub_task_start"; id: string; label: string; agent?: string | null; color?: string | null }
+  | { type: "sub_task_start"; id: string; label: string; agent?: string | null; color?: string | null; session?: string | null }
   | { type: "sub_task_delta"; id: string; text: string }
   | { type: "sub_task_tool_call"; id: string; name: string; args: string; call_id?: string | null }
   | { type: "sub_task_tool_result"; id: string; name: string; output: string; call_id?: string | null }

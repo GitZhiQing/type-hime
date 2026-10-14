@@ -437,8 +437,12 @@ async fn run_subagent(
         .ok_or_else(|| format!("子 Agent {} 不存在（用管理页创建，或检查名称）", req.subagent))?;
     let settings = kernel::current_settings()?;
     let started = std::time::Instant::now();
-    // 子会话：独立存档（一次性任务；st-id 唯一避免并行覆盖），usage 自动计入成本汇总
-    let sid = format!("agent-{}-{}", req.subagent, agent::subtask::next_id());
+    // 子会话：独立存档（一次性任务；st-id 唯一避免并行覆盖），usage 自动计入成本汇总。
+    // D50：优先用 spawn_agent 贯通的 session_id（与 SubTaskStart 一致，前端可回看）；
+    // None=兜底自生成（老调用方/示例路径）
+    let sid = req.session_id.clone().unwrap_or_else(|| {
+        format!("agent-{}-{}", req.subagent, agent::subtask::next_id())
+    });
     let store = SessionStore::Work(work_dir.to_path_buf());
     let spec = agent::spec::AgentSpec {
         id: profile.name.clone(),

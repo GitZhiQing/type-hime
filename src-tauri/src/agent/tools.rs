@@ -101,6 +101,9 @@ pub struct AgentSpawnRequest {
     pub description: String,
     /// 任务全文（子 Agent 的首条输入）
     pub prompt: String,
+    /// 子会话档案 id（spawn_agent 生成并随 SubTaskStart 上报——前端据此回看真实子会话；
+    /// ZCode SubagentRow.childSessionId 同语义。None=由 run_subagent 兜底生成）
+    pub session_id: Option<String>,
 }
 
 /// flow 执行器：由业务层注入（chat_flow 提供），返回执行摘要。
@@ -634,6 +637,7 @@ impl Tool for RunFlow {
             label: label.clone(),
             agent: None,
             color: None,
+            session: None,
         });
         let child = super::subtask::wrap_sink(sink, &id);
         let result = runner(
@@ -1086,6 +1090,8 @@ impl Tool for SpawnAgent {
             return Ok("[委派不可用] 当前上下文没有子 Agent 调度通道（仅作品会话内的创作助手支持 spawn_agent）。".to_string());
         };
         let id = super::subtask::next_id();
+        // 子会话档案名与任务 id 贯通（D50：前端可 loadSessionView 回看真实子会话）
+        let session = format!("agent-{}-{id}", args.subagent);
         // R9：任务卡头部 = 色点 + agent 名 + 描述（label 只放描述，名字由 agent 字段承载）
         let label = args.description.clone();
         let color = super::profiles::get_profile(&args.subagent).and_then(|p| p.color);
@@ -1094,6 +1100,7 @@ impl Tool for SpawnAgent {
             label: label.clone(),
             agent: Some(args.subagent.clone()),
             color,
+            session: Some(session.clone()),
         });
         let child = super::subtask::wrap_sink(sink, &id);
         let result = spawner(
@@ -1101,6 +1108,7 @@ impl Tool for SpawnAgent {
                 subagent: args.subagent.clone(),
                 description: args.description.clone(),
                 prompt: args.prompt.clone(),
+                session_id: Some(session),
             },
             child,
         )

@@ -13,6 +13,13 @@ import { toast } from "sonner";
 import { Loader2, ShieldCheck, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { runNextAction, type NextAction } from "@/lib/nextStep";
+import {
+  appendDelegationText,
+  createDelegation,
+  patchDelegation,
+  pushDelegationToolCall,
+  resolveDelegationToolCall,
+} from "@/lib/delegations";
 import { ToolCallCard, type ToolCallData } from "@/components/ai/tool";
 import {
   Conversation,
@@ -20,8 +27,9 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai/conversation";
-import { Message, MessageContent, MessageText } from "@/components/ai/message";
+import { Message, MessageContent } from "@/components/ai/message";
 import { MessageResponse } from "@/components/ai/response";
+import { ConversationHistory } from "@/components/ai/ConversationHistory";
 import {
   PromptInput,
   PromptInputBody,
@@ -415,15 +423,24 @@ export function ChatPane({
         ),
       );
     } else if (ev.type === "sub_task_start") {
-      // D49：委派上下文 → 制品栏标签（第 k 个 SubTaskStart ↔ 第 k 个 spawn_agent 调用）
+      // D50：委派记录入共享 store（子会话实时 transcript，制品栏视图读它）
+      // + delegation:new 登记标签；第 k 个 SubTaskStart ↔ 第 k 个 spawn_agent 调用取 prompt；
+      // session=子会话档案 id（完成后/重载后 SubagentView 用 loadSessionView 回看真实会话）
       const spawn = spawnCallsRef.current[subtaskSeqRef.current++] ?? null;
+      createDelegation({
+        id: ev.id,
+        agent: ev.agent ?? null,
+        label: ev.label,
+        prompt: spawn?.prompt ?? null,
+        session: ev.session ?? null,
+      });
       window.dispatchEvent(
         new CustomEvent("delegation:new", {
           detail: {
             id: ev.id,
             agent: ev.agent ?? null,
             label: ev.label,
-            prompt: spawn?.prompt ?? null,
+            session: ev.session ?? null,
           },
         }),
       );
@@ -441,10 +458,17 @@ export function ChatPane({
         },
       ]);
     } else if (ev.type === "sub_task_delta") {
+      appendDelegationText(ev.id, ev.text);
       setSubtasks((list) =>
         list.map((t) => (t.id === ev.id ? { ...t, text: t.text + ev.text } : t)),
       );
     } else if (ev.type === "sub_task_tool_call") {
+      pushDelegationToolCall(ev.id, {
+        name: ev.name,
+        args: ev.args,
+        result: null,
+        callId: ev.call_id ?? null,
+      });
       setSubtasks((list) =>
         list.map((t) =>
           t.id === ev.id
@@ -459,6 +483,11 @@ export function ChatPane({
         ),
       );
     } else if (ev.type === "sub_task_tool_result") {
+      resolveDelegationToolCall(ev.id, {
+        name: ev.name,
+        output: ev.output,
+        callId: ev.call_id ?? null,
+      });
       setSubtasks((list) =>
         list.map((t) => {
           if (t.id !== ev.id) return t;
@@ -481,6 +510,12 @@ export function ChatPane({
         }),
       );
     } else if (ev.type === "sub_task_end") {
+      patchDelegation(ev.id, {
+        status: ev.status === "done" ? "done" : "error",
+        summary: ev.summary ?? null,
+        tokens: ev.tokens ?? null,
+        durationMs: ev.duration_ms ?? null,
+      });
       setSubtasks((list) => {
         const task = list.find((t) => t.id === ev.id);
         // 审校类流程完成 → 拉问题清单计数渲染内联摘要卡（R5-③；延迟等 issues.json 落盘）
@@ -630,45 +665,8 @@ export function ChatPane({
     <div className="flex h-full flex-col">
       <Conversation>
         <ConversationContent>
-          {/* 历史渲染：连续 assistant 消息合并为一个视觉流——一轮 Agent 执行（工具调用循环）
-              在档案里是多条消息，若各成一块，块间 gap-3 与块内 gap-1.5 交替会让工具卡
-              间距忽大忽小（用户反馈：spawn_agent 卡前后明显不等）；合并后整轮统一 gap-1.5 */}
-          {(() => {
-            const groups: MessageView[][] = [];
-            for (const m of messages) {
-              const g = groups[groups.length - 1];
-              if (m.role !== "user" && g && g[g.length - 1].role !== "user") g.push(m);
-              else groups.push([m]);
-            }
-            return groups.map((g, gi) => (
-              <div key={gi} className="flex flex-col gap-1.5">
-                {g.flatMap((m, mi) => [
-                  ...(m.tool_calls ?? []).map((tc, j) => (
-                    <ToolCallCard
-                      key={`t${mi}-${j}`}
-                      call={{
-                        name: tc.name,
-                        args: tc.args,
-                        result: tc.result,
-                        isError: tc.is_error,
-                      }}
-                    />
-                  )),
-                  m.text.trim() !== "" ? (
-                    <Message key={`m${mi}`} from={m.role === "user" ? "user" : "assistant"}>
-                      <MessageContent>
-                        {m.role === "user" ? (
-                          <MessageText text={m.text} />
-                        ) : (
-                          <MessageResponse>{m.text}</MessageResponse>
-                        )}
-                      </MessageContent>
-                    </Message>
-                  ) : null,
-                ])}
-              </div>
-            ));
-          })()}
+          {/* 历史渲染（D50 抽为共享组件：子 Agent 会话视图复用同一套只读渲染） */}
+          <ConversationHistory messages={messages} />
           {rounds.map((r, ri) => {
             const isLast = ri === rounds.length - 1;
             return (
@@ -686,17 +684,8 @@ export function ChatPane({
                   if (t.name !== "spawn_agent") return <ToolCallCard key={i} call={t} />;
                   const seq = roundsSpawnSeq[ri][i];
                   const task = seq != null ? subtasks[seq] : undefined;
-                  const spawnPrompt = (() => {
-                    if (!task) return null;
-                    try {
-                      const o = JSON.parse(t.args) as { prompt?: unknown };
-                      return typeof o.prompt === "string" ? o.prompt : null;
-                    } catch {
-                      return null;
-                    }
-                  })();
                   return task ? (
-                    <TaskCard key={`spawn-${i}`} task={task} prompt={spawnPrompt} />
+                    <TaskCard key={`spawn-${i}`} task={task} />
                   ) : (
                     <ToolCallCard key={i} call={t} />
                   );
