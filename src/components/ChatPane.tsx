@@ -492,6 +492,11 @@ export function ChatPane({
             : a,
         ),
       );
+      // D62：决策后短暂展示结果态（已允许/已拒绝）即退场——不滞留聊天流；
+      // 决策留痕由随后的工具卡（执行命令…完成/出错）承担
+      window.setTimeout(() => {
+        setApprovals((list) => list.filter((a) => a.id !== ev.id));
+      }, 1600);
     } else if (ev.type === "sub_task_start") {
       // D50：委派记录入共享 store（子会话实时 transcript，制品栏视图读它）
       // + delegation:new 登记标签；第 k 个 SubTaskStart ↔ 第 k 个 spawn_agent 调用取 prompt；
