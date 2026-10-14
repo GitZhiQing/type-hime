@@ -531,6 +531,19 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
             &s("content")
         )),
 
+        // ---- 子 Agent 管理（R8-②：AgentProfile 用户级 CRUD） ----
+        "list_agents" => {
+            let metas = type_hime_lib::agent::profiles::list_profile_meta();
+            ok!(Ok::<_, String>(metas))
+        }
+        "read_agent" => ok!(
+            type_hime_lib::agent::profiles::read_profile_raw(&s("name"))
+                .map(|(content, source)| type_hime_lib::agent::profiles::AgentRaw { content, source })
+                .ok_or_else(|| format!("子 Agent {} 不存在", s("name")))
+        ),
+        "write_agent" => ok!(type_hime_lib::agent::profiles::write_profile(&s("name"), &s("content")).map(|_| ())),
+        "delete_agent" => ok!(type_hime_lib::agent::profiles::delete_profile(&s("name")).map(|_| ())),
+
         other => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("未知命令：{other}")})),

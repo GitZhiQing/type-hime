@@ -6,6 +6,7 @@ pub mod bash;
 pub mod events;
 pub mod goal;
 pub mod kernel;
+pub mod profiles;
 pub mod session;
 pub mod skills;
 pub mod spec;

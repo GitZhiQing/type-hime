@@ -433,6 +433,35 @@ fn write_skill(work_path: String, name: String, content: String) -> Result<(), S
     agent::skills::write_skill_file(&PathBuf::from(work_path), &name, &content)
 }
 
+// ---------------------------------------------------------------------------
+// 子 Agent 管理（R8-② · 多 Agent 团队）：AgentProfile 用户级 CRUD（管理页数据源）
+
+/// 生效子 Agent 清单（内置 + 用户级覆盖；根 Agent 团队注入同源）。
+#[tauri::command]
+fn list_agents() -> Result<Vec<agent::profiles::AgentMeta>, String> {
+    Ok(agent::profiles::list_profile_meta())
+}
+
+/// 读取子 Agent 原始 md（管理页编辑；用户层优先，回落内置）。
+#[tauri::command]
+fn read_agent(name: String) -> Result<agent::profiles::AgentRaw, String> {
+    let (content, source) = agent::profiles::read_profile_raw(&name)
+        .ok_or_else(|| format!("子 Agent {name} 不存在"))?;
+    Ok(agent::profiles::AgentRaw { content, source })
+}
+
+/// 保存子 Agent（用户级；同名覆盖内置；frontmatter name 必须与请求一致）。
+#[tauri::command]
+fn write_agent(name: String, content: String) -> Result<(), String> {
+    agent::profiles::write_profile(&name, &content).map(|_| ())
+}
+
+/// 删除用户级子 Agent（内置不可删）。
+#[tauri::command]
+fn delete_agent(name: String) -> Result<(), String> {
+    agent::profiles::delete_profile(&name).map(|_| ())
+}
+
 #[tauri::command]
 async fn chat_stream(
     app: AppHandle,
@@ -777,6 +806,10 @@ pub fn run() {
             git_show,
             read_skill,
             write_skill,
+            list_agents,
+            read_agent,
+            write_agent,
+            delete_agent,
             chat_stream,
             chat_stream_global,
             decide_approval,
