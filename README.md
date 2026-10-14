@@ -34,6 +34,7 @@ pnpm tauri build   # 打包安装程序
 
 ## 配置（进阶）
 
+- **API key**：只存本机 app data（Rust 侧持有），随请求直连你配置的供应商。
 - **bash 白名单** `permissions.json`（两层叠加：全局 `%APPDATA%\type-hime\permissions.json` + 作品目录同名文件；字段均可省略）：`allow_commands`（额外只读命令，如 `rg`）、`deny_patterns`（额外拦截的子串模式）、`git_readonly`（额外 git 只读子命令）、`pipe_filters`（额外管道过滤命令）。写产物/改历史的黑名单不可豁免——作品文件修改一律走提议通道。
 - **权限例外**：会话内权限下拉的「权限例外设置」按工具名 + 模式覆盖档位（写入作品 `project.json` 的 `permission.overrides`）。
 - **装配偏好**：作品 `project.json` 的 `assembly_prefs`（档位/预算/组件排除），一般无需手改。

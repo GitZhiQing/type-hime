@@ -2,6 +2,7 @@
 name = "type-hime"
 version = "0.1.0"
 description = "type-hime · AI 辅助中文网文长篇写作工作台"
+license = "MIT"
 authors = ["type-hime"]
 edition = "2024"
 
