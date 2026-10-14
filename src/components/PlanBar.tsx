@@ -13,24 +13,28 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "cn";
-import { Check, ChevronDown, Circle, Lock, RotateCcw } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Circle, Lock, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { runNextAction, type NextAction } from "@/lib/nextStep";
 
 /**
  * PLAN 条（替代 StageBar）：聊天输入框上方的可折叠阶段进度条。
  * 折叠=当前阶段+进度点+快捷确认；展开=阶段列表（状态图标 + 阶段名 + 状态 + 重做按钮）。
  * 推进由 Agent/产物状态发起建议、人点确认（REDESIGN §5.4）。
+ * R17：下一步文案升级为可点行动按钮（有行动时）——点击直达对应指令/审阅标签。
  */
 
 interface PlanBarProps {
   workPath: string;
   pipeline: PipelineView;
-  /** R15：样章是否已产出（设定阶段提示区分「开始访谈」与「已产出待确认」） */
+  /** 样章是否已产出（设定阶段纯文案提示区分「开始访谈」与「已产出待确认」） */
   hasSample?: boolean;
+  /** R17 下一步主行动（null = 无行动，退回纯文案提示；确认类由右侧「确认并推进」承担） */
+  next?: NextAction | null;
   onChange: (p: PipelineView) => void;
 }
 
-export function PlanBar({ workPath, pipeline, hasSample, onChange }: PlanBarProps) {
+export function PlanBar({ workPath, pipeline, hasSample, next, onChange }: PlanBarProps) {
   const [busy, setBusy] = useState(false);
 
   async function act(
@@ -83,9 +87,20 @@ export function PlanBar({ workPath, pipeline, hasSample, onChange }: PlanBarProp
           ))}
         </div>
         <span className="text-muted-foreground">{confirmedCount}/{pipeline.gates.length}</span>
-        <span className="ml-1 hidden truncate text-muted-foreground sm:inline">
-          {nextHint(pipeline, hasSample)}
-        </span>
+        {next && !busy ? (
+          <Button
+            variant="ghost"
+            className="ml-1 hidden h-auto min-w-0 shrink px-1 py-0 text-[11px] text-muted-foreground hover:text-foreground sm:inline-flex"
+            onClick={() => runNextAction(next)}
+          >
+            <ArrowRight data-icon="inline-start" />
+            <span className="truncate">{next.label}</span>
+          </Button>
+        ) : (
+          <span className="ml-1 hidden truncate text-muted-foreground sm:inline">
+            {nextHint(pipeline, hasSample)}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
           {current && !current.confirmed && (
             <Button

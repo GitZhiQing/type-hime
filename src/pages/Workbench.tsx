@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   api,
   listenCompat,
   PipelineView,
+  Proposal,
   SettingMeta,
   TreeNode,
   WorkSummary,
 } from "@/lib/tauri";
+import { computeNextStep } from "@/lib/nextStep";
 import { ChatPane } from "@/components/ChatPane";
 import { SessionList } from "@/components/SessionList";
 import { PlanBar } from "@/components/PlanBar";
@@ -45,6 +47,8 @@ export function Workbench() {
   );
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionRefresh, setSessionRefresh] = useState(0);
+  /** 本作品待审提议数（R17 下一步行动条：有待审提议时「审 N 条提议」最优先） */
+  const [pendingProposals, setPendingProposals] = useState(0);
 
   const workPath = work?.path ?? "";
 
@@ -70,16 +74,19 @@ export function Workbench() {
   const refresh = useCallback(async () => {
     if (!workPath) return;
     try {
-      const [t, p, s, u] = await Promise.all([
+      const [t, p, s, u, props] = await Promise.all([
         api.readTree(workPath),
         api.getPipeline(workPath),
         api.listSettings(workPath).catch(() => [] as SettingMeta[]),
         api.getUsageSummary(workPath).catch(() => null),
+        api.listProposals().catch(() => [] as Proposal[]),
       ]);
       setTree(t);
       setPipeline(p);
       setSettings(s);
       setUsage(u);
+      // 提议队列是全局的，按作品过滤（R14 归属语义）
+      setPendingProposals(props.filter((x) => x.work_path === workPath).length);
     } catch (e) {
       toast.error(String(e));
     }
@@ -111,13 +118,12 @@ export function Workbench() {
     }
   }
 
-  // R15：样章是否已产出（开书完成信号）与访谈是否可开始（自动开场失败时的空态兜底入口）
+  // R17：样章是否已产出（开书完成信号）；下一步行动（主行动 + chips）纯函数计算
   const hasSample = treeHasPath(tree, "style/样章.md");
-  const kickoffAvailable =
-    !!pipeline &&
-    pipeline.stage === "settings" &&
-    pipeline.confirmed.length === 0 &&
-    !hasSample;
+  const next = useMemo(
+    () => computeNextStep(pipeline, tree, pendingProposals, hasSample),
+    [pipeline, tree, pendingProposals, hasSample],
+  );
 
   useEffect(() => {
     if (!work) {
@@ -142,6 +148,17 @@ export function Workbench() {
     return () => {
       api.unwatchWork().catch(() => {});
       unP.then((f) => f()).catch(() => {});
+    };
+  }, [workPath, scheduleRefresh]);
+
+  // 新提议即时反映到下一步行动（R17：待审提议最优先——「审 N 条提议」需要实时计数）
+  useEffect(() => {
+    if (!workPath) return;
+    const un = listenCompat<Proposal>("review:new", (e) => {
+      if (e.payload?.work_path === workPath) scheduleRefresh();
+    });
+    return () => {
+      un.then((f) => f()).catch(() => {});
     };
   }, [workPath, scheduleRefresh]);
 
@@ -215,7 +232,7 @@ export function Workbench() {
             sessionId={sessionId}
             onNewSession={createSession}
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
-            kickoffAvailable={kickoffAvailable}
+            chips={next.chips}
             planSlot={
               <>
                 <GoalBar
@@ -228,6 +245,7 @@ export function Workbench() {
                     workPath={workPath}
                     pipeline={pipeline}
                     hasSample={hasSample}
+                    next={next.primary}
                     onChange={setPipeline}
                   />
                 )}

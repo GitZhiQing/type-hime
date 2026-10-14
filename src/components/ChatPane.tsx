@@ -10,8 +10,9 @@ import {
   TreeNode,
 } from "@/lib/tauri";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, Sparkles, Target } from "lucide-react";
+import { Loader2, ShieldCheck, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { runNextAction, type NextAction } from "@/lib/nextStep";
 import { ToolCallCard, type ToolCallData } from "@/components/ai/tool";
 import {
   Conversation,
@@ -49,8 +50,8 @@ interface ChatProps {
   onNewSession: () => string;
   /** 一轮对话完成后回调（父层刷新会话列表，自动标题已落盘） */
   onTurnDone: () => void;
-  /** R15 开书工作室：开书访谈可开始（空态显示「开始访谈」按钮，兜底自动开场失败） */
-  kickoffAvailable?: boolean;
+  /** R17 下一步行动 chips（输入框上方快捷入口；空数组不渲染） */
+  chips?: NextAction[];
   /** 输入框上方的插槽（work 作用域放 PLAN 条；REDESIGN §5.4） */
   planSlot?: ReactNode;
 }
@@ -93,7 +94,7 @@ export function ChatPane({
   sessionId,
   onNewSession,
   onTurnDone,
-  kickoffAvailable,
+  chips,
   planSlot,
 }: ChatProps) {
   const [messages, setMessages] = useState<MessageView[]>([]);
@@ -367,6 +368,18 @@ export function ChatPane({
     };
     window.addEventListener("kickoff:start", onKickoff);
     return () => window.removeEventListener("kickoff:start", onKickoff);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWork, workPath, sessionId]);
+
+  // R17 下一步行动条：PLAN 条按钮经 window 事件代发指令（与 chips 同一聊天流出口）
+  useEffect(() => {
+    const onNext = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+      if (!isWork || busyRef.current || !text) return;
+      sendText(text);
+    };
+    window.addEventListener("nextstep:send", onNext);
+    return () => window.removeEventListener("nextstep:send", onNext);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWork, workPath, sessionId]);
 
@@ -715,14 +728,7 @@ export function ChatPane({
                     : undefined
               }
               icon={busy ? <Loader2 className="size-5 animate-spin" /> : undefined}
-            >
-              {isWork && kickoffAvailable && !busy && (
-                <Button size="sm" variant="outline" onClick={() => sendText("/开书")}>
-                  <Sparkles data-icon="inline-start" />
-                  开始开书访谈
-                </Button>
-              )}
-            </ConversationEmptyState>
+            />
           )}
         </ConversationContent>
         <ConversationScrollButton />
@@ -730,6 +736,22 @@ export function ChatPane({
 
       {planSlot && <div className="shrink-0 border-t">{planSlot}</div>}
       <div className="shrink-0 border-t p-2">
+        {/* R17 下一步行动 chips：主行动+备选直达（命令成为快捷方式而非必经路径） */}
+        {isWork && !busy && chips && chips.length > 0 && (
+          <div className="tabbar-scroll mb-1.5 flex gap-1 overflow-x-auto pb-0.5">
+            {chips.map((a) => (
+              <Button
+                key={a.id}
+                variant="outline"
+                size="sm"
+                className="h-6 shrink-0 rounded-full px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() => (a.kind === "send" ? sendText(a.text) : runNextAction(a))}
+              >
+                {a.label}
+              </Button>
+            ))}
+          </div>
+        )}
         <PromptInput
           value={input}
           setValue={(v) => {
