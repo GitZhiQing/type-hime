@@ -20,6 +20,12 @@ pub struct AgentSpec {
     pub model_override: Option<String>,
     /// 工具循环上限
     pub max_turns: usize,
+    /// 同一消息内多个工具调用的执行并发（rig AgentRunner::tool_concurrency；R8-①，0/缺省=1 顺序）
+    #[serde(default)]
+    pub tool_concurrency: usize,
+    /// 允许模型一回合发起多个工具调用（GenerationOptions；R8-①，默认 false）
+    #[serde(default)]
+    pub parallel_tool_calls: bool,
 }
 
 pub const CHAT_SPEC_SECTIONS: &str = r#"你是 type-hime（执笔公主）——中文网文长篇写作工作台的对话助手，服务一位正在创作百万字长篇的作者。
@@ -55,6 +61,8 @@ pub fn chat_spec() -> AgentSpec {
         skills: vec!["writer-basics".to_string()],
         model_override: None,
         max_turns: 12,
+        tool_concurrency: 4,
+        parallel_tool_calls: true,
     }
 }
 
@@ -106,6 +114,8 @@ pub fn global_chat_spec() -> AgentSpec {
         skills: Vec::new(),
         model_override: None,
         max_turns: 12,
+        tool_concurrency: 1,
+        parallel_tool_calls: false,
     }
 }
 
@@ -133,6 +143,8 @@ pub fn writer_spec(assembly_system: &str) -> AgentSpec {
         skills: vec!["writer-basics".to_string()],
         model_override: None,
         max_turns: 14,
+        tool_concurrency: 1,
+        parallel_tool_calls: false,
     }
 }
 
@@ -162,6 +174,8 @@ pub fn reviewer_spec(assembly_system: &str) -> AgentSpec {
         skills: vec!["review-consistency".to_string()],
         model_override: None,
         max_turns: 12,
+        tool_concurrency: 1,
+        parallel_tool_calls: false,
     }
 }
 
@@ -182,6 +196,8 @@ pub fn ledger_spec() -> AgentSpec {
         skills: vec!["ledger-update".to_string()],
         model_override: None,
         max_turns: 12,
+        tool_concurrency: 1,
+        parallel_tool_calls: false,
     }
 }
 
@@ -200,5 +216,7 @@ pub fn ledger_tidy_spec() -> AgentSpec {
         skills: vec!["ledger-tidy".to_string()],
         model_override: None,
         max_turns: 6,
+        tool_concurrency: 1,
+        parallel_tool_calls: false,
     }
 }

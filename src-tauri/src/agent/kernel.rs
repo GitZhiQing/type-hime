@@ -98,7 +98,10 @@ where
 
     let base = AgentBuilder::new(model)
         .preamble(preamble)
-        .default_max_turns(spec.max_turns);
+        .default_max_turns(spec.max_turns)
+        // R8-①：允许模型一回合发多个工具调用（GenerationOptions；执行并发由下方
+        // run 链的 tool_concurrency 控制，两者独立——rig builder/runner 语义）
+        .parallel_tool_calls(spec.parallel_tool_calls);
 
     // 工具注册面收敛（inner facade）：按 spec.tools 名单构建 DynamicTool 列表一次挂载
     // （rig 0.44 dynamic_tools；免去逐工具 typestate 链式 match，见 tools::erase）
@@ -114,7 +117,13 @@ where
         }
     };
 
-    let mut stream = agent.prompt(prompt).history(history).stream();
+    let mut stream = agent
+        .prompt(prompt)
+        .history(history)
+        // R8-①：同消息多工具调用的执行并发（0/缺省钳为 1 顺序；协作式并发，
+        // 批语义=整批完成后按调用顺序上报）。根 Agent 开 4 以并行委派子 Agent。
+        .tool_concurrency(spec.tool_concurrency)
+        .stream();
     let mut final_text = String::new();
     let mut new_messages: Vec<Message> = Vec::new();
     let mut last_usage: Option<UsageReport> = None;
