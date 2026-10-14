@@ -1,6 +1,21 @@
-# 码字姬（type-hime）
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" width="112" alt="码字姬 应用图标" />
+</p>
 
-本地优先的中文网文 AI 写作工作台——聊天写书，改动先过目。
+<h1 align="center">码字姬</h1>
+
+<p align="center">
+  <code>type-hime</code> · 本地优先的中文网文 AI 写作工作台<br/>
+  <sub>聊天写书，改动先过目。</sub>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b93a2c"></a>
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white">
+  <img alt="Rust 1.95+" src="https://img.shields.io/badge/Rust-1.95%2B-dea584?logo=rust&logoColor=white">
+</p>
+
+---
 
 ## 能做什么
 
