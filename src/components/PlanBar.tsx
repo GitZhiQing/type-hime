@@ -204,7 +204,7 @@ function nextHint(pipeline: PipelineView, hasSample?: boolean): string {
       return hasSample
         ? "开书五件套已产出：审阅接受后确认推进"
         : "下一步：开始开书访谈（直接对话即可）";
-    if (cur.stage === "chapters") return "完成本章正文与账本回写后确认推进";
+    if (cur.stage === "chapters") return "正文 → /去AI味 精修 → 账本回写，然后确认推进";
     if (cur.stage === "review") return "审校收敛（问题清单清零）即完成本卷";
     return `完成「${cur.label}」产物后确认推进`;
   }

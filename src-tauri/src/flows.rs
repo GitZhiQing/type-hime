@@ -767,19 +767,20 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
     // 委派模板（R8-④）：角色提示 + 装配指引 + 输出要求；具体上下文由根 Agent 读取后填入
     let delegation = match cmd {
         "章纲" => Some((
-            "生成章纲",
+            "生成细纲",
             format!(
-                "请用 spawn_agent 工具委派 general 子 Agent 撰写该章章纲（目标文件 {ch_path} 的章纲同伴：volumes/vol-{volume:02}/chapters/{chapter}-章纲.md）。\n\
+                "请用 spawn_agent 工具委派 general 子 Agent 撰写该章细纲（目标文件 volumes/vol-{volume:02}/chapters/{chapter}-章纲.md）。\n\
                  委派前你须装配上下文并入委派 prompt：读卷纲（volumes/vol-{volume:02}/卷纲.md）与本卷已确认章纲，给本卷结构定位与前后章承接要点。\n\
-                 要求子 Agent：按 writer-basics 规程产出章纲（目标/情节点/冲突/钩子），走 propose_write 提议。{chapter_hint}"
+                 要求子 Agent 产出**场景级细纲**（R16 细纲层）：①章三要素——核心事件（一句话）、开篇钩子（首场景从哪个冲突处进）、章尾悬念（停在哪个出点）；②场景列表——每场景一个小节：目标（本场推进什么）/进点（冲突已在进行的位置）/出点（目标达成或落空即切）/冲突双方/关键对话要点（谁对谁、谈成还是谈崩、说出或按住哪条信息）；③3~5 个场景、全文 300~600 字，禁止写正文句段。走 propose_write 提议。{chapter_hint}"
             ),
         )),
         "正文" => Some((
             "生成正文",
             format!(
                 "请用 spawn_agent 工具委派 general 子 Agent 撰写本章正文（目标文件 {ch_path}）。\n\
-                 委派前你须装配上下文并入委派 prompt：卷纲要点、本章章纲全文、账本要点（用 get_ledger 取角色当前状态）、上一章结尾（读上一章文件末段）、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在则整段并入，注明「模仿句风与节奏，不得复用其内容」）。\n\
-                 要求子 Agent：按 writer-basics 规程写足章纲全部情节点，全文一次 propose_write，正文先自检（与账本不冲突、不提前说破伏笔；对照文风卡禁例与样章节奏）。{chapter_hint}"
+                 委派前你须装配上下文并入委派 prompt：卷纲要点、本章细纲全文（volumes/vol-{volume:02}/chapters/{chapter}-章纲.md；细纲缺章三要素或场景小节时先请作者补细纲再动笔）、账本要点（用 get_ledger 取角色当前状态）、上一章结尾（读上一章文件末段）、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在则整段并入，注明「模仿句风与节奏，不得复用其内容」）。\n\
+                 要求子 Agent 两步成稿（R16）：第一步按细纲逐场景写草稿——每场景从进点进场、写到出点切出，关键对话按要点成戏，场景一个不减；第二步换读者视角重读全文，按 writer-basics 纪律精修（删无功能细节、长短句交排、每轮对话有状态位移、删一轮可删冗余）后再全文一次 propose_write；自检与账本不冲突、不提前说破伏笔、对照文风卡禁例与样章节奏。{chapter_hint}\n\
+                 交付后向作者提示：落稿下一站跑 /去AI味（30% 重点段落精修），精修后再回写账本。"
             ),
         )),
         "回写" => Some((
@@ -795,16 +796,16 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
             format!(
                 "请用 spawn_agent 工具委派 general 子 Agent 对本章做一致性检查（vs 账本与可见设定）。\n\
                  委派前你须装配上下文并入委派 prompt：本章正文 {ch_path}、账本要点（get_ledger）、既有问题清单（list_issues {chapter}）。\n\
-                 要求子 Agent：按 review-consistency 规程输出**编号问题清单**（【问题】【证据】【建议修复】），先跑 preflight_chapter 预检并入清单结论；确定无误才声明通过。\n\
+                 要求子 Agent：按 review-consistency 规程输出**编号问题清单**（一致性三查 + 可读性第四查【可读性】前缀，R16），每条【问题】【证据】【建议修复】，先跑 preflight_chapter 预检并入清单结论；确定无误才声明通过。\n\
                  完成后：把问题清单交 record_issues 结构化落盘（chapter={chapter}，source=consistency），并汇报条数。{chapter_hint}"
             ),
         )),
         "去AI味" => Some((
             "去 AI 味",
             format!(
-                "请用 spawn_agent 工具委派 general 子 Agent 对本章做去 AI 味改写（情节/人设/事实/伏笔一处不动）。\n\
-                 委派前你须装配上下文并入委派 prompt：本章正文 {ch_path} 全文要点、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在，改写后须贴合其句风与节奏）。\n\
-                 要求子 Agent：删套话与万能形容、删无指向的装饰性细节、拆长句、去重复句式、把概括叙述落到具体动作细节；propose_edit 提交整章全文。{chapter_hint}"
+                "请用 spawn_agent 工具委派 general 子 Agent 对本章做精修（情节/人设/事实/伏笔一处不动）。\n\
+                 委派前你须装配上下文并入委派 prompt：本章正文 {ch_path} 全文、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在，改写后须贴合其句风与节奏）。\n\
+                 要求子 Agent 按 30% 重点段落精修（R16，三轮修改法之「去 AI 味」轮）：先挑出重点段——开头 3 段、结尾 2 段、核心转折段；对重点段深修（删套话与万能形容、删无指向装饰细节、拆均质句式、把概述落到具体动作与对话、贴近样章节奏）；其余段落只改明显违规处，不动行文。propose_edit 提交整章全文。{chapter_hint}"
             ),
         )),
         "复检" => Some((
@@ -874,6 +875,17 @@ mod tests {
     #[test]
     fn slash_instruction_delegation_templates() {
         // R8-④ 委派化：写作命令是委派模板（spawn_agent 指引），不再直调 run_flow
+        // R8-④ 委派化：写作命令是委派模板（spawn_agent 指引），不再直调 run_flow
+        // R16 细纲层：/章纲=场景级细纲（三要素+场景小节）、/正文=两步成稿、/去AI味=30% 重点段落精修
+        let s = slash_instruction("/章纲 1 3").unwrap();
+        assert!(s.contains("场景级细纲") && s.contains("章三要素") && s.contains("关键对话"), "{s}");
+        let s = slash_instruction("/正文 1 3").unwrap();
+        assert!(s.contains("两步成稿") && s.contains("精修") && s.contains("去AI味"), "{s}");
+        let s = slash_instruction("/去AI味 2").unwrap();
+        assert!(s.contains("重点段") && s.contains("开头 3 段"), "{s}");
+        let s = slash_instruction("/一致性 2").unwrap();
+        assert!(s.contains("可读性第四查"), "{s}");
+
         let s = slash_instruction("/正文 1 3").unwrap();
         assert!(s.contains("spawn_agent"), "{s}");
         assert!(s.contains("volumes/vol-01/chapters/ch-003.md"), "{s}");
