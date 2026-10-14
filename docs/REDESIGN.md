@@ -1,7 +1,7 @@
 ---
 created: 2026-10-14
 status: 已确认 · 2026-10-14
-note: 产品重设计——从「工作流工具箱」到「Agent 驱动的写作工作台」。工程执行见 REFACTOR.md（R1-R6，渐进绞杀）；SPEC.md 决策表与 DECISIONS.md（D19-D25）已按第 14.3 节同步修订。本文不改变任何现行红线：提议审阅落盘、可见性出口过滤、key 不出 Rust 侧。
+note: 产品重设计——从「工作流工具箱」到「Agent 驱动的写作工作台」。工程执行见 REFACTOR.md（R1-R6，渐进绞杀）；SPEC.md 决策表与 DECISIONS.md（D19-D25）已按第 14.3 节同步修订。本文不改变任何现行红线：提议审阅落盘、可见性出口过滤、key 不出 Rust 侧。（2026-10-15 注：设计中的「装配检查器」制品与「上下文面板」随演进未落地/已退役——装配由根 Agent 承担、装配预览视图 D49 退役，子 Agent 会话视图 D50 新增；现行形态以 REFACTOR.md 进展与 DECISIONS.md 为准。）
 ---
 
 # REDESIGN · Agent 驱动的写作工作台

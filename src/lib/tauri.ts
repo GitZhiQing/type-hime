@@ -150,13 +150,6 @@ export interface ContextOverview {
   assembly_percent: number;
 }
 
-/** 装配偏好（R3 上下文面板；存 project.json） */
-export interface AssemblyPrefs {
-  setting_detail: string | null;
-  token_budget: number | null;
-  exclude_components: string[];
-}
-
 export interface SettingsView {
   providers: ProviderView[];
   active_provider: string | null;
@@ -392,29 +385,6 @@ export interface Proposal {
   created_at: string;
 }
 
-export interface AssembledComponent {
-  name: string;
-  content: string;
-  tokens: number;
-  included: boolean;
-  /** 被上下文面板排除（仍在列表中展示以便恢复勾选） */
-  excluded: boolean;
-  missing_hint: string | null;
-}
-
-export interface AssemblyResult {
-  system: string;
-  system_tokens: number;
-  components: AssembledComponent[];
-  filtered_by_visibility: number;
-  total_tokens: number;
-  over_budget: boolean;
-  /** 软提示（R3：超预算仅提示，不拦截不降档）；null = 无警告 */
-  warning: string | null;
-  applied_detail: "full" | "name_only" | "compact";
-  cast: string[];
-}
-
 export interface IssueRecord {
   id: number;
   chapter: string;
@@ -574,33 +544,6 @@ export const api = {
   saveAgentProfile: (profile: AgentProfile) =>
     call<void>("save_agent_profile", { profile }),
   listTools: () => call<ToolMeta[]>("list_tools"),
-
-  // 装配
-  previewAssembly: (
-    workPath: string,
-    volume: number,
-    chapter: string,
-    settingDetail: "full" | "name_only",
-    tokenBudget: number,
-    excludeComponents?: string[],
-  ) =>
-    call<AssemblyResult>("preview_assembly", {
-      workPath,
-      volume,
-      chapter,
-      settingDetail,
-      tokenBudget,
-      excludeComponents: excludeComponents ?? null,
-    }),
-  getAssemblyPrefs: (workPath: string) =>
-    call<AssemblyPrefs>("get_assembly_prefs", { workPath }),
-  setAssemblyPrefs: (workPath: string, prefs: AssemblyPrefs) =>
-    call<void>("set_assembly_prefs", {
-      workPath,
-      settingDetail: prefs.setting_detail,
-      tokenBudget: prefs.token_budget,
-      excludeComponents: prefs.exclude_components,
-    }),
 
   // 生成流水线
   generateArtifact: (

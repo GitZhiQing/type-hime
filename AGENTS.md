@@ -25,12 +25,12 @@ cargo run --example webapi                         # Web 测试通道（127.0.0.
 ## 目录速览
 
 ```
-docs/            SPEC.md（范围契约）+ DECISIONS.md（选型账）+ REDESIGN.md（重设计·已确认）+ REFACTOR.md（重构执行：R1-R8，R7 后置）
+docs/            SPEC.md（范围契约）+ DECISIONS.md（选型账）+ REDESIGN.md（重设计·已确认）+ REFACTOR.md（重构执行：R1-R17 已完成，R18-R20/R6 待排，R7 后置）
 src/             前端（React + TS + Tailwind v4 + shadcn/ui，base-ui 基座）
   components/ui/      shadcn 组件（CLI 生成）
-  components/ai/      AI 界面组件（Message/Conversation/ToolCallCard/Response/提议卡/审批卡/子任务卡=子 Agent 运行卡/输入框补全）
-  components/artifacts/  制品面板（R5：ArtifactsPane 多标签框架 + 文稿/问题清单/账本/成本/git/技能视图）
-  components/*.tsx    导航 rail/资源树/编辑器/会话列表/聊天/PLAN 条/上下文条/目标横幅/审阅/装配
+  components/ai/      AI 界面组件（Message/Conversation/ToolCallCard 折叠卡/Response/任务行=子 Agent 卡/委派会话视图/会话历史渲染/代码高亮/提议卡/审批卡/输入框补全）
+  components/artifacts/  制品面板（R5：ArtifactsPane 多标签框架 + 文稿/问题清单/账本/委派会话/成本/git/技能视图；装配视图已退役 D49）
+  components/*.tsx    导航 rail/资源树/编辑器/会话列表/聊天（标题栏：标题/重命名/时间/面板收起）/PLAN 条/上下文条/目标横幅/审阅
   pages/              Launcher（作品库）/ GlobalChat（全局对话）/ Workbench / Settings / Agents（R8 子 Agent 团队管理）
 src-tauri/src/
   lib.rs             Tauri 命令注册（唯一入口）
@@ -70,7 +70,7 @@ examples/        chat_smoke / full_flow / mvp_flow / write_book / regression / g
 - cargo check 警告保持 0（cargo fix --lib 可自动清）。
 - 开发纪律：一片一提交（中文提交信息），切片验收通过才进下一片；先 cargo check/test 绿再动前端。
 - 文档纪律：产物按现状书写，演进过程交给提交说明与 DECISIONS.md。
-- 重构进行中（docs/REFACTOR.md；R1-R5 已完成——R4.5 见 D34/D35、R5 见 D36；**R8 多 Agent 团队已完成——见 D37，run_flow 已从 chat 工具面退役；git 提交改用户主动见 D38**；剩 R6 收缩版=regression 扩展+文档对齐）：新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）。实施中的选型演化以 DECISIONS D26 起条目为准。
+- 重构进行中（docs/REFACTOR.md；R1-R17 已完成——R4.5/R5/R8 见 D34-D37、R9 见 D39、R14-R17 见 D41/D44/D45/D46；D47-D55 为用户反馈 UI 批次：装配标签退役、子任务行持久化+子会话标签页、标题栏与面板收起等）：新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）；剩 R6 收缩版（regression 扩展+文档对齐）+ R18-R20。实施中的选型演化以 DECISIONS D26 起条目为准。
 - 多 Agent（R8）：子 Agent 定义=app data/agents/*.md（md+frontmatter，正文=prompt；内置 general 可覆盖不可删）；spawn_agent 递归硬禁（子 Agent 工具面永远剔除）；子 Agent 落稿同样走 propose_*（红线不因多 Agent 放松）；子会话档案 agent-<名>-<st-id>（含 st-id 防并行覆盖）。
 - Tailwind v4 不扫描 node_modules：第三方组件（e.g. streamdown）的效用类不会生成 CSS——用 @source 显式纳入或写作用域 CSS（曾致复制按钮 pointer-events 失效、物理不可点；同类：streamdown shiki token 只给 --sdm-c/--shiki-dark 变量、应用规则缺，已在 index.css 补——第三方组件样式缺失先查此坑家族）。
 - 交互验证必须用真实事件：合成 el.click() 绕过浏览器命中测试会产生假阳性；原生弹层（select/confirm/dialog）在嵌入环境定位不可控，统一用 shadcn 组件（ui/select、Dialog 等，Select 弹层 alignItemWithTrigger=false 标准下方展开）。
