@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Save, Loader2, EyeOff, Eye, Pencil } from "lucide-react";
+import { cn } from "cn";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { MessageResponse } from "@/components/ai/response";
@@ -16,11 +17,11 @@ interface EditorProps {
   relPath: string | null;
 }
 
-/** 编辑/预览分段按钮样式（激活态反色） */
-function cnEditBtn(active: boolean): string {
+/** 悬浮药丸内的按钮样式（R12：激活态实底、非激活 hover 微亮） */
+function cnPillBtn(active: boolean): string {
   return [
-    "flex items-center px-2 py-1 transition-colors",
-    active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60",
+    "flex items-center gap-1 px-2.5 py-1 text-[11px] transition-colors",
+    active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
   ].join(" ");
 }
 
@@ -119,28 +120,6 @@ export function EditorPane({ workPath, relPath }: EditorProps) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {isMd && relPath && (
-            <span className="flex overflow-hidden rounded-md border text-xs">
-              <button
-                type="button"
-                aria-label="编辑模式"
-                className={cnEditBtn(mode === "edit")}
-                onClick={() => setMode("edit")}
-              >
-                <Pencil data-icon="inline-start" />
-                编辑
-              </button>
-              <button
-                type="button"
-                aria-label="预览模式"
-                className={cnEditBtn(mode === "preview")}
-                onClick={() => setMode("preview")}
-              >
-                <Eye data-icon="inline-start" />
-                预览
-              </button>
-            </span>
-          )}
           <Button
             variant="ghost"
             size="sm"
@@ -219,28 +198,57 @@ export function EditorPane({ workPath, relPath }: EditorProps) {
         </div>
       )}
 
-      {loading ? (
-        <div className="flex flex-1 items-center justify-center text-muted-foreground">
-          <Loader2 className="mr-2 size-4 animate-spin" /> 读取中…
-        </div>
-      ) : relPath && isMd && mode === "preview" ? (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto max-w-3xl px-6 py-4">
-            <MessageResponse className="text-[13px]">{content}</MessageResponse>
+      {/* 内容区（R12：md 的编辑/预览切换为右上角悬浮药丸，悬浮于内容之上） */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {relPath && isMd && !loading && (
+          <div className="absolute right-3 top-2 z-10 flex items-center overflow-hidden rounded-full border bg-background/75 shadow-sm backdrop-blur-sm">
+            <button
+              type="button"
+              aria-label="编辑模式"
+              className={cnPillBtn(mode === "edit")}
+              onClick={() => setMode("edit")}
+            >
+              <Pencil className="size-3" />
+              编辑
+            </button>
+            <button
+              type="button"
+              aria-label="预览模式"
+              className={cnPillBtn(mode === "preview")}
+              onClick={() => setMode("preview")}
+            >
+              <Eye className="size-3" />
+              预览
+            </button>
           </div>
-        </ScrollArea>
-      ) : relPath ? (
-        <Textarea
-          value={content}
-          onChange={(e) => setContent(e.currentTarget.value)}
-          spellCheck={false}
-          className="flex-1 resize-none rounded-none border-0 font-mono text-[13px] leading-relaxed focus-visible:ring-0"
-        />
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          在左侧资源树选择文件
-        </div>
-      )}
+        )}
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center text-muted-foreground">
+            <Loader2 className="mr-2 size-4 animate-spin" /> 读取中…
+          </div>
+        ) : relPath && isMd && mode === "preview" ? (
+          <ScrollArea className="min-h-0 flex-1">
+            {/* pt 为悬浮药丸留出上边距，避免首行被遮 */}
+            <div className="mx-auto max-w-3xl px-6 pt-11 pb-4">
+              <MessageResponse className="text-[13px]">{content}</MessageResponse>
+            </div>
+          </ScrollArea>
+        ) : relPath ? (
+          <Textarea
+            value={content}
+            onChange={(e) => setContent(e.currentTarget.value)}
+            spellCheck={false}
+            className={cn(
+              "flex-1 resize-none rounded-none border-0 font-mono text-[13px] leading-relaxed focus-visible:ring-0",
+              isMd && "pt-11",
+            )}
+          />
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            在左侧资源树选择文件
+          </div>
+        )}
+      </div>
       <Separator />
     </section>
   );
