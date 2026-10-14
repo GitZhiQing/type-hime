@@ -496,6 +496,22 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
             ok!(pipeline::save_permission_config(&PathBuf::from(s("workPath")), &cfg))
         }
 
+        // ---- 长时目标（R4.5-②：SessionGoal 存会话档案；/goal 分流在 chat_stream 内） ----
+        "get_session_goal" => ok!(session_store_work(&s("workPath")).and_then(|st| {
+            Ok(type_hime_lib::agent::session::load_session(&st, &s("sessionId"))
+                .ok()
+                .and_then(|sess| sess.goal.map(|g| g.view())))
+        })),
+        "goal_control" => ok!(session_store_work(&s("workPath")).and_then(|st| {
+            let action = match s("action").as_str() {
+                "pause" => type_hime_lib::agent::goal::GoalControlAction::Pause,
+                "clear" => type_hime_lib::agent::goal::GoalControlAction::Clear,
+                other => return Err(format!("未知目标动作：{other}（支持 pause/clear）")),
+            };
+            type_hime_lib::agent::session::update_goal(&st, &s("sessionId"), action)
+                .map(|(goal, _)| goal.map(|g| g.view()))
+        })),
+
         other => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("未知命令：{other}")})),

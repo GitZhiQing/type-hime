@@ -62,4 +62,8 @@ pub enum AgentEvent {
         rel_path: String,
         result: String,
     },
+    /// 长时目标状态更新（R4.5：设置/暂停/恢复/清除/轮末验证后；前端 GoalBar 数据源）
+    GoalUpdate {
+        goal: crate::agent::goal::SessionGoalView,
+    },
 }

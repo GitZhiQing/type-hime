@@ -127,6 +127,50 @@ pub async fn chat_flow(
             .collect();
         format!("{}\n\n{}", blocks.join("\n"), prompt)
     };
+    // /goal 指令分流（R4.5-② · D31）：控制子命令（暂停/恢复/清除/状态）不进 LLM；
+    // 设置 = 写会话档案 + 本轮 prompt 追加目标指令块（验证器循环在 R4.5-③ 接入）。
+    let mut prompt = prompt;
+    match agent::goal::parse_goal_command(&prompt) {
+        agent::goal::GoalCommand::NotGoal => {}
+        agent::goal::GoalCommand::Set(objective) => {
+            let store = SessionStore::Work(work_dir.clone());
+            let mut sess = session::load_or_new_session(&store, &session_id)?;
+            let goal = agent::goal::SessionGoal::new(objective.clone());
+            let view = goal.view();
+            sess.goal = Some(goal); // 设置即替换：旧目标（若有）直接被替换
+            session::save_session(&store, &sess)?;
+            on_event(AgentEvent::GoalUpdate { goal: view });
+            prompt = format!("{prompt}\n\n{}", agent::goal::format_goal_directive(&objective));
+        }
+        agent::goal::GoalCommand::Status => {
+            let store = SessionStore::Work(work_dir.clone());
+            let sess = session::load_or_new_session(&store, &session_id)?;
+            if let Some(goal) = sess.goal.as_ref().map(|g| g.view()) {
+                on_event(AgentEvent::GoalUpdate { goal });
+            }
+            on_event(AgentEvent::Final {
+                output: agent::goal::summarize(sess.goal.as_ref()),
+            });
+            return Ok(());
+        }
+        cmd => {
+            // Pause | Resume | Clear → 控制动作（非法迁移的 Err 文案面向作者，不按运行失败处理）
+            let action = match cmd {
+                agent::goal::GoalCommand::Pause => agent::goal::GoalControlAction::Pause,
+                agent::goal::GoalCommand::Resume => agent::goal::GoalControlAction::Resume,
+                _ => agent::goal::GoalControlAction::Clear,
+            };
+            let store = SessionStore::Work(work_dir.clone());
+            let (goal, text) = session::update_goal(&store, &session_id, action)
+                .map(|(g, msg)| (g, msg))
+                .unwrap_or_else(|msg| (None, msg));
+            if let Some(goal) = goal.as_ref().map(|g| g.view()) {
+                on_event(AgentEvent::GoalUpdate { goal });
+            }
+            on_event(AgentEvent::Final { output: text });
+            return Ok(());
+        }
+    }
     // slash 指令化（R4-⑥）：/命令 参数 → 结构化指令块（附在消息尾，原命令留在消息首供展示）
     let prompt = match slash_instruction(&prompt) {
         Some(block) => format!("{prompt}\n\n{block}"),
@@ -165,6 +209,16 @@ pub async fn chat_flow_global(
     prompt: String,
     on_event: EventSink,
 ) -> Result<(), String> {
+    // 长时目标是作品会话能力（R4.5）：全局对话无作品上下文
+    if !matches!(
+        agent::goal::parse_goal_command(&prompt),
+        agent::goal::GoalCommand::NotGoal
+    ) {
+        on_event(AgentEvent::Final {
+            output: "长时目标是作品会话能力：请打开作品后在会话中使用 /goal。".to_string(),
+        });
+        return Ok(());
+    }
     let spec = global_chat_spec();
     let store = SessionStore::Global;
     run_and_save_session(session_id.clone(), &store, None, &spec, &prompt, &on_event).await?;
@@ -259,7 +313,7 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::slash_instruction;
+    use super::*;
 
     #[test]
     fn slash_instruction_parses_params() {
@@ -295,6 +349,109 @@ mod tests {
         // 非 slash / 未知命令
         assert!(slash_instruction("普通消息").is_none());
         assert!(slash_instruction("/不存在 1").is_none());
+    }
+
+    /// /goal 控制子命令不进 LLM：改会话档案 + 发 GoalUpdate/Final 事件（R4.5-②）。
+    #[test]
+    fn goal_control_subcommands_without_llm() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let dir = std::env::temp_dir().join(format!(
+                "type-hime-goal-flow-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .subsec_nanos()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let store = SessionStore::Work(dir.clone());
+            let sess_id = "goal-test";
+            let mut sess = Session::new(sess_id.to_string());
+            sess.goal = Some(agent::goal::SessionGoal::new("审校第一卷"));
+            session::save_session(&store, &sess).unwrap();
+
+            let queue = Arc::new(Mutex::new(ReviewQueue::in_memory()));
+            let events = Arc::new(Mutex::new(Vec::<AgentEvent>::new()));
+            let sink: EventSink = {
+                let events = Arc::clone(&events);
+                Arc::new(move |ev| events.lock().unwrap().push(ev))
+            };
+            let call = |prompt: &str, sink: EventSink| {
+                chat_flow(
+                    &queue,
+                    None,
+                    dir.to_string_lossy().to_string(),
+                    sess_id.to_string(),
+                    prompt.to_string(),
+                    sink,
+                    Arc::new(|_| {}),
+                )
+            };
+
+            // 暂停：状态落档 + GoalUpdate + Final
+            call("/goal 暂停", Arc::clone(&sink)).await.unwrap();
+            {
+                let evs = events.lock().unwrap();
+                assert!(
+                    evs.iter().any(|e| matches!(e, AgentEvent::GoalUpdate { goal }
+                        if goal.status == agent::goal::GoalStatus::Paused))
+                );
+                assert!(evs
+                    .iter()
+                    .any(|e| matches!(e, AgentEvent::Final { output } if output.contains("暂停"))));
+            }
+            assert_eq!(
+                session::load_session(&store, sess_id).unwrap().goal.unwrap().status,
+                agent::goal::GoalStatus::Paused
+            );
+
+            // 重复暂停：非法迁移 → Final 文案（不是运行失败）
+            events.lock().unwrap().clear();
+            call("/goal pause", Arc::clone(&sink)).await.unwrap();
+            assert!(events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, AgentEvent::Final { output } if output.contains("暂停状态"))));
+
+            // 恢复 → Active
+            call("/goal 恢复", Arc::clone(&sink)).await.unwrap();
+            assert_eq!(
+                session::load_session(&store, sess_id).unwrap().goal.unwrap().status,
+                agent::goal::GoalStatus::Active
+            );
+
+            // 裸 /goal：状态摘要（含目标与轮次）
+            events.lock().unwrap().clear();
+            call("/goal", Arc::clone(&sink)).await.unwrap();
+            assert!(events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, AgentEvent::Final { output } if output.contains("审校第一卷"))));
+
+            // 清除 → goal None
+            call("/goal 清除", Arc::clone(&sink)).await.unwrap();
+            assert!(session::load_session(&store, sess_id).unwrap().goal.is_none());
+
+            // 全局对话拒绝 /goal：Final 提示（不落任何 LLM/会话）
+            events.lock().unwrap().clear();
+            chat_flow_global(
+                "global-x".to_string(),
+                "/goal 你好".to_string(),
+                Arc::clone(&sink),
+            )
+            .await
+            .unwrap();
+            assert!(events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, AgentEvent::Final { output } if output.contains("作品"))));
+
+            let _ = std::fs::remove_dir_all(&dir);
+        });
     }
 }
 /// kind → Stage 的阶段门映射（ledger_tidy 为维护操作，不设门）。

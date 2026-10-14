@@ -16,7 +16,7 @@ fn default_format_version() -> u32 {
 }
 
 impl Session {
-    /// 新会话骨架（空消息、默认「变更前确认」档）。
+    /// 新会话骨架（空消息、默认「变更前确认」档、无长时目标）。
     pub fn new(id: String) -> Self {
         Self {
             id,
@@ -24,6 +24,7 @@ impl Session {
             title: None,
             format_version: SESSION_FORMAT_VERSION,
             permission_mode: Default::default(),
+            goal: None,
             messages: Vec::new(),
             usage: None,
             last_usage: None,
@@ -44,6 +45,9 @@ pub struct Session {
     /// 会话权限档位（R4 · D30：会话级决定；旧档无此字段按「变更前确认」）
     #[serde(default)]
     pub permission_mode: crate::permissions::PermissionMode,
+    /// 长时目标（R4.5 · D31；旧档无此字段按无目标读取；.sessions/ 受提议通道硬闸保护）
+    #[serde(default)]
+    pub goal: Option<crate::agent::goal::SessionGoal>,
     pub messages: Vec<Message>,
     /// 会话全部轮次累计用量（成本参考）
     #[serde(default)]
@@ -215,6 +219,30 @@ pub fn set_permission_mode(
     save_session(store, &sess)
 }
 
+/// 读会话；存档不存在则新建骨架（会话 id 由前端生成，首条消息可能先于存档落盘）。
+/// 存档存在但解析失败时如实传播（不吞坏档）。
+pub fn load_or_new_session(store: &SessionStore, id: &str) -> Result<Session, String> {
+    let path = store.dir()?.join(format!("{id}.json"));
+    if !path.exists() {
+        return Ok(Session::new(id.to_string()));
+    }
+    load_session(store, id)
+}
+
+/// 长时目标控制读改写（R4.5：load → apply_control → save）。
+/// 返回 (更新后目标, 面向作者的提示文案)；非法迁移（如重复暂停）返回 Err 文案。
+pub fn update_goal(
+    store: &SessionStore,
+    id: &str,
+    action: crate::agent::goal::GoalControlAction,
+) -> Result<(Option<crate::agent::goal::SessionGoal>, String), String> {
+    let mut sess = load_session(store, id)?;
+    let msg = crate::agent::goal::apply_control(&mut sess.goal, action)?;
+    let goal = sess.goal.clone();
+    save_session(store, &sess)?;
+    Ok((goal, msg))
+}
+
 /// 一次工具调用（结构化持久化：前端可展开查看参数与结果，与流式事件同构）。
 #[derive(Debug, Serialize, Clone)]
 pub struct ToolCallView {
@@ -335,6 +363,7 @@ pub fn message_views(messages: &[Message]) -> Vec<MessageView> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::goal;
 
     fn temp_store(tag: &str) -> SessionStore {
         // 测试目录按测试名区分后缀，避免并行竞态
@@ -431,6 +460,36 @@ mod tests {
         delete_session(&store, "old-1").unwrap();
         assert!(load_session(&store, "old-1").is_err());
         assert!(delete_session(&store, "old-1").is_err());
+
+        let _ = std::fs::remove_dir_all(store.dir().unwrap());
+    }
+
+    #[test]
+    fn goal_field_compat_and_update_roundtrip() {
+        let store = temp_store("goal");
+        // 旧档（无 goal 字段）可解析，goal 为 None
+        let raw = r#"{"id":"old-g","created_at":"2026-10-13T10:00:00","messages":[]}"#;
+        std::fs::write(store.dir().unwrap().join("old-g.json"), raw).unwrap();
+        assert!(load_session(&store, "old-g").unwrap().goal.is_none());
+        // 无目标时控制动作报错
+        assert!(update_goal(&store, "old-g", goal::GoalControlAction::Pause).is_err());
+
+        // 设置目标 → 暂停 → 恢复 → 清除 全程读改写
+        let mut sess = load_or_new_session(&store, "old-g").unwrap();
+        sess.goal = Some(goal::SessionGoal::new("审校第一卷"));
+        save_session(&store, &sess).unwrap();
+        let (g, msg) = update_goal(&store, "old-g", goal::GoalControlAction::Pause).unwrap();
+        assert_eq!(g.unwrap().status, goal::GoalStatus::Paused);
+        assert!(msg.contains("暂停"));
+        let (g, _) = update_goal(&store, "old-g", goal::GoalControlAction::Resume).unwrap();
+        assert_eq!(g.unwrap().status, goal::GoalStatus::Active);
+        let (g, _) = update_goal(&store, "old-g", goal::GoalControlAction::Clear).unwrap();
+        assert!(g.is_none());
+        assert!(load_session(&store, "old-g").unwrap().goal.is_none());
+
+        // load_or_new：不存在的会话返回新建骨架
+        let fresh = load_or_new_session(&store, "no-such").unwrap();
+        assert!(fresh.messages.is_empty() && fresh.goal.is_none());
 
         let _ = std::fs::remove_dir_all(store.dir().unwrap());
     }

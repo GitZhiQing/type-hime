@@ -32,6 +32,15 @@ impl GoalStatus {
             GoalStatus::Complete => "complete",
         }
     }
+
+    pub fn label_zh(&self) -> &'static str {
+        match self {
+            GoalStatus::Active => "进行中",
+            GoalStatus::Paused => "已暂停",
+            GoalStatus::BudgetLimited => "预算耗尽",
+            GoalStatus::Complete => "已完成",
+        }
+    }
 }
 
 fn default_max_iterations() -> u32 {
@@ -330,6 +339,226 @@ pub fn parse_verifier_output(text: &str) -> GoalVerifierOutput {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 持久化结构（R4.5-②）：存会话档案（.sessions/ 受 protected_control_path
+// 保护，agent 无法经 propose_* 通道篡改目标状态）。
+// ---------------------------------------------------------------------------
+
+/// 目标长度上限（ZCode MAX_GOAL_OBJECTIVE_CHARS 同语义，写作域取宽松值）。
+pub const MAX_OBJECTIVE_CHARS: usize = 2000;
+
+/// 一轮迭代记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoalIteration {
+    pub index: u32,
+    /// 该轮发给 agent 的指令（首轮=用户消息+目标指令块；后续=续跑指令）
+    pub prompt: String,
+    pub ended_at: Option<String>,
+    pub tokens: u64,
+    /// 轮末验证结论（验证器跑完才有；None=该轮尚未结束）
+    pub verification: Option<GoalVerifierOutput>,
+}
+
+/// 会话目标（Session.goal 字段）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionGoal {
+    pub objective: String,
+    pub status: GoalStatus,
+    pub created_at: String,
+    pub iterations: Vec<GoalIteration>,
+    pub tokens_used: u64,
+    pub budget: GoalBudget,
+}
+
+impl SessionGoal {
+    pub fn new(objective: impl Into<String>) -> Self {
+        let objective: String = objective.into().chars().take(MAX_OBJECTIVE_CHARS).collect();
+        Self {
+            objective,
+            status: GoalStatus::Active,
+            created_at: crate::works::now_iso(),
+            iterations: Vec::new(),
+            tokens_used: 0,
+            budget: GoalBudget::default(),
+        }
+    }
+
+    /// 迭代行标题：第 1 轮 = 目标本身；第 n 轮 = 上一轮验证 nextAction
+    /// （ZCode conversationGoalSummaryModel 同构：标题即上一轮 nextAction）。
+    pub fn iteration_title(&self, index: u32) -> Option<String> {
+        if index == 1 {
+            return Some(self.objective.chars().take(60).collect());
+        }
+        self.iterations
+            .iter()
+            .find(|it| it.index == index - 1)
+            .and_then(|it| it.verification.as_ref())
+            .and_then(|v| v.next_action.as_deref())
+            .map(|s| s.chars().take(60).collect())
+    }
+
+    /// 运行中展示的下一步标题：最近一轮验证的 nextAction（无则 None）。
+    pub fn current_title(&self) -> Option<String> {
+        self.iterations
+            .last()
+            .and_then(|it| it.verification.as_ref())
+            .and_then(|v| v.next_action.clone())
+            .map(|s| s.chars().take(60).collect())
+    }
+
+    pub fn view(&self) -> SessionGoalView {
+        SessionGoalView {
+            objective: self.objective.clone(),
+            status: self.status,
+            status_label: self.status.label_zh().to_string(),
+            iterations: self
+                .iterations
+                .iter()
+                .map(|it| GoalIterationView {
+                    index: it.index,
+                    title: self
+                        .iteration_title(it.index)
+                        .unwrap_or_else(|| it.prompt.chars().take(60).collect()),
+                    ended_at: it.ended_at.clone(),
+                    tokens: it.tokens,
+                    verification: it.verification.clone(),
+                })
+                .collect(),
+            tokens_used: self.tokens_used,
+            budget: self.budget,
+            current_title: self.current_title(),
+        }
+    }
+}
+
+/// 前端目标视图（GoalBar 数据源）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionGoalView {
+    pub objective: String,
+    pub status: GoalStatus,
+    pub status_label: String,
+    pub iterations: Vec<GoalIterationView>,
+    pub tokens_used: u64,
+    pub budget: GoalBudget,
+    /// 运行中下一步（上一轮 nextAction；complete/paused 时为 None）
+    pub current_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GoalIterationView {
+    pub index: u32,
+    pub title: String,
+    pub ended_at: Option<String>,
+    pub tokens: u64,
+    pub verification: Option<GoalVerifierOutput>,
+}
+
+/// /goal 指令解析产物。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GoalCommand {
+    /// /goal <目标描述>：设置（或替换）目标
+    Set(String),
+    Pause,
+    Resume,
+    Clear,
+    /// 裸 /goal 或 /goal 状态：输出状态摘要
+    Status,
+    /// 不是 /goal 消息
+    NotGoal,
+}
+
+/// 解析 /goal 指令（纯函数）：`/goal` 后紧跟 ASCII 字母数字视为其它命令（如 /goals）；
+/// 控制子命令中英等义（pause/暂停、resume/恢复/继续、clear/清除/取消、status/状态）。
+pub fn parse_goal_command(prompt: &str) -> GoalCommand {
+    let head = prompt.trim_start();
+    let Some(rest) = head.strip_prefix("/goal") else {
+        return GoalCommand::NotGoal;
+    };
+    if rest.starts_with(|c: char| c.is_ascii_alphanumeric()) {
+        return GoalCommand::NotGoal;
+    }
+    match rest.trim() {
+        "" | "status" | "状态" => GoalCommand::Status,
+        "pause" | "暂停" => GoalCommand::Pause,
+        "resume" | "恢复" | "继续" => GoalCommand::Resume,
+        "clear" | "清除" | "取消" => GoalCommand::Clear,
+        text => GoalCommand::Set(text.trim().to_string()),
+    }
+}
+
+/// 控制动作（goal_control 命令与 /goal 控制子命令共用语义）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GoalControlAction {
+    Pause,
+    Resume,
+    Clear,
+}
+
+/// 就地应用控制动作，返回面向作者的提示文案；非法迁移返回 Err（文案可直接展示）。
+pub fn apply_control(
+    goal: &mut Option<SessionGoal>,
+    action: GoalControlAction,
+) -> Result<String, String> {
+    match action {
+        GoalControlAction::Pause => {
+            let g = goal.as_mut().ok_or("当前会话没有长时目标")?;
+            match g.status {
+                GoalStatus::Active => {
+                    g.status = GoalStatus::Paused;
+                    Ok("已暂停长时目标；用 /goal 恢复 继续。".to_string())
+                }
+                GoalStatus::Paused => Err("目标已处于暂停状态".to_string()),
+                GoalStatus::Complete | GoalStatus::BudgetLimited => {
+                    Err("目标已结束，无需暂停".to_string())
+                }
+            }
+        }
+        GoalControlAction::Resume => {
+            let g = goal.as_mut().ok_or("当前会话没有长时目标")?;
+            match g.status {
+                GoalStatus::Paused => {
+                    g.status = GoalStatus::Active;
+                    Ok("已恢复长时目标。".to_string())
+                }
+                GoalStatus::Active => Err("目标进行中，无需恢复".to_string()),
+                GoalStatus::Complete => Err("目标已完成，无需恢复".to_string()),
+                GoalStatus::BudgetLimited => Err("目标已因预算耗尽结束（调高上限后可重新 /goal）".to_string()),
+            }
+        }
+        GoalControlAction::Clear => {
+            if goal.is_none() {
+                return Err("当前会话没有长时目标".to_string());
+            }
+            *goal = None;
+            Ok("已清除会话目标。".to_string())
+        }
+    }
+}
+
+/// 状态摘要（裸 /goal 的 Final 文案）。
+pub fn summarize(goal: Option<&SessionGoal>) -> String {
+    match goal {
+        None => "当前会话没有长时目标。用 /goal <目标描述> 设置，例如：/goal 把第一卷逐章一致性检查一遍。".to_string(),
+        Some(g) => {
+            let last = g
+                .iterations
+                .last()
+                .and_then(|it| it.verification.as_ref())
+                .map(|v| format!("\n上轮验证：{}", v.reason))
+                .unwrap_or_default();
+            format!(
+                "【长时目标】{}\n状态：{}；已完成 {} 轮（上限 {}）；累计 tokens {}。{}\n（/goal 暂停 · /goal 恢复 · /goal 清除）",
+                g.objective,
+                g.status.label_zh(),
+                g.iterations.len(),
+                g.budget.max_iterations,
+                g.tokens_used,
+                last
+            )
+        }
+    }
+}
+
 /// 会话轨迹渲染（验证器的证据源）：复用 message_views 的工具配对，
 /// 每条消息截断 per_message_cap、总量截断 total_cap（防长会话顶爆验证器窗口）。
 pub fn render_transcript(
@@ -504,6 +733,93 @@ mod tests {
 
         let c = format_continuation_prompt(malicious, 1, &GoalBudget::default(), 0, "r", "n");
         assert_eq!(c.matches("</untrusted_objective>").count(), 1);
+    }
+
+    #[test]
+    fn goal_command_parsing() {
+        use GoalCommand::*;
+        assert_eq!(parse_goal_command("/goal 把第一卷逐章审一遍"), Set("把第一卷逐章审一遍".into()));
+        assert_eq!(parse_goal_command("  /goal 把第一卷逐章审一遍  "), Set("把第一卷逐章审一遍".into()));
+        assert_eq!(parse_goal_command("/goal"), Status);
+        assert_eq!(parse_goal_command("/goal 状态"), Status);
+        assert_eq!(parse_goal_command("/goal pause"), Pause);
+        assert_eq!(parse_goal_command("/goal暂停"), Pause);
+        assert_eq!(parse_goal_command("/goal resume"), Resume);
+        assert_eq!(parse_goal_command("/goal 恢复"), Resume);
+        assert_eq!(parse_goal_command("/goal 继续"), Resume);
+        assert_eq!(parse_goal_command("/goal clear"), Clear);
+        assert_eq!(parse_goal_command("/goal 清除"), Clear);
+        // /goals 等前缀重叠的其它命令不算
+        assert_eq!(parse_goal_command("/goals 清单"), NotGoal);
+        assert_eq!(parse_goal_command("/goal123"), NotGoal);
+        assert_eq!(parse_goal_command("普通消息"), NotGoal);
+        assert_eq!(parse_goal_command("/正文 1 3"), NotGoal);
+        // 目标超长：parse 原样透传，构造 SessionGoal 时截断
+        let long: String = "字".repeat(3000);
+        let Set(obj) = parse_goal_command(&format!("/goal {long}")) else {
+            panic!("应为 Set");
+        };
+        assert_eq!(obj.chars().count(), 3000);
+        assert_eq!(SessionGoal::new(obj).objective.chars().count(), MAX_OBJECTIVE_CHARS);
+    }
+
+    #[test]
+    fn control_action_semantics() {
+        // 无目标：三种动作都报错（文案可直接展示）
+        let mut none: Option<SessionGoal> = None;
+        assert!(apply_control(&mut none, GoalControlAction::Pause).is_err());
+        assert!(apply_control(&mut none, GoalControlAction::Clear).is_err());
+
+        // Active → Paused → Active → Clear
+        let mut g = Some(SessionGoal::new("审校第一卷"));
+        assert!(apply_control(&mut g, GoalControlAction::Pause).is_ok());
+        assert_eq!(g.as_ref().unwrap().status, GoalStatus::Paused);
+        // 重复暂停报错
+        assert!(apply_control(&mut g, GoalControlAction::Pause).is_err());
+        assert!(apply_control(&mut g, GoalControlAction::Resume).is_ok());
+        assert_eq!(g.as_ref().unwrap().status, GoalStatus::Active);
+        assert!(apply_control(&mut g, GoalControlAction::Clear).is_ok());
+        assert!(g.is_none());
+
+        // 已完成/预算耗尽为终态：暂停与恢复均拒绝
+        let mut done = Some(SessionGoal::new("x"));
+        done.as_mut().unwrap().status = GoalStatus::Complete;
+        assert!(apply_control(&mut done, GoalControlAction::Pause).is_err());
+        assert!(apply_control(&mut done, GoalControlAction::Resume).is_err());
+        // 但允许清除（用户显式操作）
+        assert!(apply_control(&mut done, GoalControlAction::Clear).is_ok());
+    }
+
+    #[test]
+    fn iteration_title_follows_last_next_action() {
+        let mut g = SessionGoal::new("对第 3 章和第 4 章各跑一次修为预检并汇报结论");
+        g.iterations.push(GoalIteration {
+            index: 1,
+            prompt: "首轮指令".into(),
+            ended_at: Some("t1".into()),
+            tokens: 100,
+            verification: Some(GoalVerifierOutput {
+                passed: false,
+                reason: "第 4 章未检查".into(),
+                next_action: Some("对第 4 章运行修为层级预检并汇报".into()),
+            }),
+        });
+        // 第 1 轮标题 = 目标本身；第 2 轮 = 上一轮 nextAction
+        assert!(g.iteration_title(1).unwrap().contains("修为预检"));
+        assert_eq!(
+            g.iteration_title(2).as_deref(),
+            Some("对第 4 章运行修为层级预检并汇报")
+        );
+        // current_title = 最近一轮 nextAction
+        assert_eq!(
+            g.current_title().as_deref(),
+            Some("对第 4 章运行修为层级预检并汇报")
+        );
+        // 视图：状态中文标签 + 迭代行带验证结论
+        let v = g.view();
+        assert_eq!(v.status_label, "进行中");
+        assert_eq!(v.iterations.len(), 1);
+        assert!(v.iterations[0].verification.as_ref().unwrap().reason.contains("第 4 章"));
     }
 
     #[test]

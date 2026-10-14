@@ -367,6 +367,38 @@ fn get_permission_config(work_path: String) -> Result<permissions::PermissionCon
     pipeline::load_permission_config(&PathBuf::from(work_path))
 }
 
+// ---------------------------------------------------------------------------
+// 长时目标（R4.5-② · D31）：SessionGoal 存会话档案；/goal 分流在 flows::chat_flow
+
+/// 读取会话长时目标（前端 GoalBar 数据源；无目标/无会话 → None）。
+#[tauri::command]
+fn get_session_goal(
+    work_path: String,
+    session_id: String,
+) -> Result<Option<agent::goal::SessionGoalView>, String> {
+    let store = session::SessionStore::Work(PathBuf::from(work_path));
+    Ok(session::load_session(&store, &session_id)
+        .ok()
+        .and_then(|s| s.goal.map(|g| g.view())))
+}
+
+/// 目标控制（横幅按钮直调：暂停/清除；恢复走聊天流 /goal 恢复 以驱动续跑）。
+#[tauri::command]
+fn goal_control(
+    work_path: String,
+    session_id: String,
+    action: String,
+) -> Result<Option<agent::goal::SessionGoalView>, String> {
+    let action = match action.as_str() {
+        "pause" => agent::goal::GoalControlAction::Pause,
+        "clear" => agent::goal::GoalControlAction::Clear,
+        other => return Err(format!("未知目标动作：{other}（支持 pause/clear）")),
+    };
+    let store = session::SessionStore::Work(PathBuf::from(work_path));
+    let (goal, _msg) = session::update_goal(&store, &session_id, action)?;
+    Ok(goal.map(|g| g.view()))
+}
+
 /// 保存作品级权限覆盖表。
 #[tauri::command]
 fn set_permission_config(
@@ -716,6 +748,8 @@ pub fn run() {
             set_session_permission_mode,
             get_permission_config,
             set_permission_config,
+            get_session_goal,
+            goal_control,
             chat_stream,
             chat_stream_global,
             decide_approval,
