@@ -720,51 +720,55 @@ export function ChatPane({
 
   return (
     <div className="flex h-full flex-col">
-      {/* D53：会话标题栏；D54：重命名 + 创建时间；D55：两端面板收起按钮（barStart/barEnd） */}
+      {/* D53：会话标题栏；D54：重命名 + 创建时间；D55：两端面板收起按钮（barStart/barEnd）。
+          D60：中部内容包 flex-1——无会话（无时间小字）时右开关仍贴右缘，
+          否则两个面板开关会挨在标题两侧挤成一堆（用户反馈） */}
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b px-3">
         {barStart}
-        {renaming ? (
-          <input
-            className="min-w-0 flex-1 rounded-sm border bg-transparent px-1.5 py-0.5 text-sm outline-none focus-visible:border-ring"
-            value={renameText}
-            autoFocus
-            aria-label="会话标题"
-            onChange={(e) => setRenameText(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void commitTitleRename();
-              if (e.key === "Escape") setRenaming(false);
-            }}
-            onBlur={() => void commitTitleRename()}
-          />
-        ) : (
-          <>
-            <span className="min-w-0 truncate text-sm font-medium" title={sessionTitle ?? undefined}>
-              {sessionTitle ?? "新会话"}
-            </span>
-            {sessionId && (
-              <button
-                type="button"
-                className="shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
-                title="重命名会话"
-                aria-label="重命名会话"
-                onClick={() => {
-                  setRenameText(sessionTitle ?? "");
-                  setRenaming(true);
-                }}
-              >
-                <Pencil className="size-3" />
-              </button>
-            )}
-          </>
-        )}
-        {!renaming && sessionCreatedAt && (
-          <span
-            className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
-            title={sessionCreatedAt}
-          >
-            {sessionCreatedAt.slice(0, 16)}
-          </span>
-        )}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {renaming ? (
+            <input
+              className="min-w-0 flex-1 rounded-sm border bg-transparent px-1.5 py-0.5 text-sm outline-none focus-visible:border-ring"
+              value={renameText}
+              autoFocus
+              aria-label="会话标题"
+              onChange={(e) => setRenameText(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void commitTitleRename();
+                if (e.key === "Escape") setRenaming(false);
+              }}
+              onBlur={() => void commitTitleRename()}
+            />
+          ) : (
+            <>
+              <span className="min-w-0 truncate text-sm font-medium" title={sessionTitle ?? undefined}>
+                {sessionTitle ?? "新会话"}
+              </span>
+              {sessionId && (
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+                  title="重命名会话"
+                  aria-label="重命名会话"
+                  onClick={() => {
+                    setRenameText(sessionTitle ?? "");
+                    setRenaming(true);
+                  }}
+                >
+                  <Pencil className="size-3" />
+                </button>
+              )}
+              {sessionCreatedAt && (
+                <span
+                  className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
+                  title={sessionCreatedAt}
+                >
+                  {sessionCreatedAt.slice(0, 16)}
+                </span>
+              )}
+            </>
+          )}
+        </div>
         {barEnd}
       </div>
       {/* 流程条（PLAN/目标横幅）在标题栏之下（D53 用户反馈：自输入框上方上移） */}
