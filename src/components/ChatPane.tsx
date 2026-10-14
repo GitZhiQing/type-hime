@@ -10,7 +10,7 @@ import {
   TreeNode,
 } from "@/lib/tauri";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Target } from "lucide-react";
 import { ToolCallCard, type ToolCallData } from "@/components/ai/tool";
 import {
   Conversation,
@@ -62,6 +62,12 @@ interface StreamingState {
   toolCalls: ToolCallState[];
 }
 
+/** 一个流式气泡（R4.5-④：长时目标每轮迭代一个气泡，标题=上一轮验证 nextAction） */
+interface StreamingRound {
+  title: string | null;
+  state: StreamingState;
+}
+
 interface MenuState {
   source: "slash" | "at";
   items: AutocompleteItem[];
@@ -87,7 +93,8 @@ export function ChatPane({
 }: ChatProps) {
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState<StreamingState | null>(null);
+  /** 流式轮次（长时目标一轮迭代 = 一个气泡；普通会话单轮也是数组首元素） */
+  const [rounds, setRounds] = useState<StreamingRound[]>([]);
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [files, setFiles] = useState<{ name: string; path: string }[]>([]);
@@ -133,7 +140,7 @@ export function ChatPane({
   }, [isWork, workPath]);
 
   useEffect(() => {
-    setStreaming(null);
+    setRounds([]);
     if (!sessionId) {
       setMessages([]);
       return;
@@ -280,6 +287,13 @@ export function ChatPane({
   async function send() {
     const raw = input.trim();
     if (!raw || busy) return;
+    setInput("");
+    await sendText(raw);
+  }
+
+  /** 发送一条消息（send 与目标横幅「继续」共用；raw 为原始文本，@ 引用在此展开） */
+  async function sendText(raw: string) {
+    if (!raw || busyRef.current) return;
     setMenu(null);
     setInlineProposals([]);
     setApprovals([]);
@@ -291,10 +305,9 @@ export function ChatPane({
 
     // 普通对话（@ 引用展开进 prompt）
     const sid = sessionId ?? onNewSession();
-    setInput("");
     setBusy(true);
     setMessages((m) => [...m, { role: "user", text: raw, tool_calls: [] }]);
-    setStreaming({ text: "", toolCalls: [] });
+    setRounds([{ title: null, state: { text: "", toolCalls: [] } }]);
 
     const prompt = await expandReferences(raw);
     const channel = makeChannel<AgentEvent>();
@@ -311,16 +324,27 @@ export function ChatPane({
         ? await api.loadSessionView(workPath!, sid)
         : await api.loadSessionViewGlobal(sid);
       setMessages(view);
-      setStreaming(null);
+      setRounds([]);
       onTurnDone();
     } catch (e) {
-      setStreaming(null);
+      setRounds([]);
       toast.error(String(e));
     } finally {
       setBusy(false);
       busyRef.current = false;
     }
   }
+
+  // 目标横幅「继续」（R4.5-④）：续跑需要流式通道，经 window 事件交本组件以聊天流驱动
+  useEffect(() => {
+    const onResume = () => {
+      if (!isWork || busyRef.current) return;
+      sendText("/goal 恢复");
+    };
+    window.addEventListener("goal:resume", onResume);
+    return () => window.removeEventListener("goal:resume", onResume);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWork, workPath, sessionId]);
 
   function handleStreamEvent(ev: AgentEvent) {
     // 审批事件（R4）：卡片状态机独立于流式消息区
@@ -396,34 +420,70 @@ export function ChatPane({
       );
       window.dispatchEvent(new CustomEvent("review:changed"));
       toast.success(`已自动应用提议 #${ev.id}（${ev.rel_path}）`);
+    } else if (ev.type === "goal_update") {
+      // 长时目标状态更新（R4.5-④）：GoalBar 经 window 事件刷新
+      window.dispatchEvent(new CustomEvent("goal:changed"));
+      // 新目标在「变更前确认」档下启动：提示切完全访问（避免每个工具调用都弹审批卡）
+      if (
+        isWork &&
+        ev.goal.status === "active" &&
+        ev.goal.iterations.length === 0 &&
+        permMode === "confirm"
+      ) {
+        toast.info("长时目标已启动", {
+          description: "建议切换「完全访问」：否则每个 bash/工具确认都会挂起等待",
+          action: {
+            label: "切完全访问",
+            onClick: () => changePermissionMode("full_access"),
+          },
+        });
+      }
+    } else if (ev.type === "goal_round_start") {
+      // 长时目标续跑轮（R4.5-④）：当前气泡收尾，开新一轮气泡
+      setRounds((rs) => [
+        ...rs,
+        { title: `第 ${ev.iteration} 轮 · ${ev.title}`, state: { text: "", toolCalls: [] } },
+      ]);
     }
-    setStreaming((s) => {
-      if (!s) return s;
+    setRounds((rs) => {
+      if (rs.length === 0) return rs;
       switch (ev.type) {
         case "text_delta":
-          return { ...s, text: s.text + ev.text };
         case "tool_call":
-          return {
-            ...s,
-            toolCalls: [
-              ...s.toolCalls,
-              { name: ev.name, args: ev.args, result: null, state: "running" },
-            ],
-          };
-        case "tool_result": {
-          const calls = [...s.toolCalls];
-          for (let i = calls.length - 1; i >= 0; i--) {
-            if (calls[i].name === ev.name && calls[i].state === "running") {
-              calls[i] = { ...calls[i], result: ev.output, state: "done" };
+        case "tool_result":
+        case "error": {
+          const rs2 = [...rs];
+          const last = rs2[rs2.length - 1];
+          const s = last.state;
+          switch (ev.type) {
+            case "text_delta":
+              last.state = { ...s, text: s.text + ev.text };
+              break;
+            case "tool_call":
+              last.state = {
+                ...s,
+                toolCalls: [...s.toolCalls, { name: ev.name, args: ev.args, result: null, state: "running" }],
+              };
+              break;
+            case "tool_result": {
+              const calls = [...s.toolCalls];
+              for (let i = calls.length - 1; i >= 0; i--) {
+                if (calls[i].name === ev.name && calls[i].state === "running") {
+                  calls[i] = { ...calls[i], result: ev.output, state: "done" };
+                  break;
+                }
+              }
+              last.state = { ...s, toolCalls: calls };
               break;
             }
+            case "error":
+              last.state = { ...s, text: s.text + `\n\n[错误] ${ev.message}` };
+              break;
           }
-          return { ...s, toolCalls: calls };
+          return rs2;
         }
-        case "error":
-          return { ...s, text: s.text + `\n\n[错误] ${ev.message}` };
         default:
-          return s;
+          return rs;
       }
     });
   }
@@ -467,18 +527,29 @@ export function ChatPane({
               )}
             </div>
           ))}
-          {streaming && (
-            <>
-              {streaming.toolCalls.map((t, i) => (
-                <ToolCallCard key={i} call={t} />
-              ))}
-              <Message from="assistant">
-                <MessageContent pulsing>
-                  <MessageResponse>{streaming.text || "…"}</MessageResponse>
-                </MessageContent>
-              </Message>
-            </>
-          )}
+          {rounds.map((r, ri) => {
+            const isLast = ri === rounds.length - 1;
+            return (
+              <div key={ri} className="flex flex-col gap-1.5">
+                {r.title && (
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                    <Target className="size-3" />
+                    {r.title}
+                  </div>
+                )}
+                {r.state.toolCalls.map((t, i) => (
+                  <ToolCallCard key={i} call={t} />
+                ))}
+                {(r.state.text.trim() !== "" || isLast) && (
+                  <Message from="assistant">
+                    <MessageContent pulsing={isLast}>
+                      <MessageResponse>{r.state.text || "…"}</MessageResponse>
+                    </MessageContent>
+                  </Message>
+                )}
+              </div>
+            );
+          })}
           {subtasks.length > 0 && (
             <div className="flex flex-col gap-2">
               {subtasks.map((t) => (
@@ -519,7 +590,7 @@ export function ChatPane({
               </div>
             </div>
           )}
-          {messages.length === 0 && !streaming && (
+          {messages.length === 0 && rounds.length === 0 && (
             <ConversationEmptyState
               title={
                 busy

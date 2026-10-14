@@ -177,7 +177,45 @@ export type AgentEvent =
   | { type: "sub_task_tool_call"; id: string; name: string; args: string }
   | { type: "sub_task_tool_result"; id: string; name: string; output: string }
   | { type: "sub_task_end"; id: string; status: string; summary: string }
-  | { type: "proposal_applied"; id: number; rel_path: string; result: string };
+  | { type: "proposal_applied"; id: number; rel_path: string; result: string }
+  | { type: "goal_update"; goal: SessionGoalView }
+  | { type: "goal_round_start"; iteration: number; title: string };
+
+/** 长时目标状态（R4.5 · D31；与 Rust GoalStatus 对应） */
+export type GoalStatus = "active" | "paused" | "budget_limited" | "complete";
+
+/** 轮末验证器结论（JSON {passed, reason, nextAction} 的解析产物） */
+export interface GoalVerifierOutput {
+  passed: boolean;
+  reason: string;
+  next_action?: string | null;
+}
+
+export interface GoalIterationView {
+  index: number;
+  /** 迭代行标题：第 1 轮=目标本身，第 n 轮=上一轮验证 nextAction */
+  title: string;
+  ended_at: string | null;
+  tokens: number;
+  verification: GoalVerifierOutput | null;
+}
+
+export interface GoalBudget {
+  max_iterations: number;
+  max_total_tokens: number | null;
+}
+
+/** 会话目标视图（GoalBar 数据源；与 Rust SessionGoalView 对应） */
+export interface SessionGoalView {
+  objective: string;
+  status: GoalStatus;
+  status_label: string;
+  iterations: GoalIterationView[];
+  tokens_used: number;
+  budget: GoalBudget;
+  /** 运行中下一步（上一轮 nextAction；complete/paused 时为 null） */
+  current_title: string | null;
+}
 
 /** 权限档位（R4 · D30：会话级两档） */
 export type PermissionMode = "confirm" | "full_access";
@@ -433,6 +471,12 @@ export const api = {
     call<PermissionConfig>("get_permission_config", { workPath }),
   setPermissionConfig: (workPath: string, overrides: ToolOverride[]) =>
     call<void>("set_permission_config", { workPath, overrides }),
+
+  // 长时目标（R4.5-②：SessionGoal 存会话档案；设置/恢复经聊天流 /goal）
+  getSessionGoal: (workPath: string, sessionId: string) =>
+    call<SessionGoalView | null>("get_session_goal", { workPath, sessionId }),
+  goalControl: (workPath: string, sessionId: string, action: "pause" | "clear") =>
+    call<SessionGoalView | null>("goal_control", { workPath, sessionId, action }),
 
   // 装配
   previewAssembly: (

@@ -16,6 +16,7 @@ export interface SlashDef {
 }
 
 export const SLASH_DEFS: SlashDef[] = [
+  { cmd: "/goal", desc: "长时目标：跨多轮迭代推进，轮末自动验证（/goal 暂停·恢复·清除）", args: "目标描述", needsChapter: false },
   { cmd: "/章纲", desc: "生成本章章纲（提议）", args: "卷 章号", needsChapter: true },
   { cmd: "/正文", desc: "生成本章正文（提议）", args: "卷 章号", needsChapter: true },
   { cmd: "/回写", desc: "账本回写：从正文提取状态变化", args: "卷 章号", needsChapter: true },

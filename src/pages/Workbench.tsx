@@ -14,6 +14,7 @@ import { SessionList } from "@/components/SessionList";
 import { GeneratePane } from "@/components/GeneratePane";
 import { PlanBar } from "@/components/PlanBar";
 import { ContextBar } from "@/components/ContextBar";
+import { GoalBar } from "@/components/GoalBar";
 import { DiffPane } from "@/components/DiffPane";
 import { AssemblyPane } from "@/components/AssemblyPane";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -274,6 +275,11 @@ export function Workbench() {
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
             planSlot={
               <>
+                <GoalBar
+                  workPath={workPath}
+                  sessionId={sessionId}
+                  refreshKey={sessionRefresh}
+                />
                 {pipeline && (
                   <PlanBar
                     workPath={workPath}
