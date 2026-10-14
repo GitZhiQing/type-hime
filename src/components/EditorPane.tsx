@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api } from "@/lib/tauri";
+import { useEffect, useRef, useState } from "react";
+import { api, listenCompat } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -95,6 +95,41 @@ export function EditorPane({ workPath, relPath }: EditorProps) {
   }
 
   const dirty = content !== saved;
+
+  // R13-③ 外部变更策略：watcher 通知 → 与磁盘对比——无未保存修改则自动重载（toast 提示），
+  // 有未保存修改只提示不重载（绝不静默覆盖在写内容）；content/saved 用 ref 镜像避免重订阅。
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  const savedRef = useRef(saved);
+  savedRef.current = saved;
+  const remoteNoticeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!relPath) return;
+    const unP = listenCompat<{ work_path?: string }>("work:changed", async () => {
+      try {
+        const disk = await api.readFile(workPath, relPath);
+        if (disk === savedRef.current) {
+          remoteNoticeRef.current = null; // 与本地一致（含自身保存回环）
+          return;
+        }
+        if (disk === contentRef.current) return; // 与编辑缓冲一致（未保存内容恰同）
+        if (contentRef.current === savedRef.current) {
+          setContent(disk);
+          setSaved(disk);
+          remoteNoticeRef.current = null;
+          toast.info("文件已在外部更新，已重载");
+        } else if (remoteNoticeRef.current !== disk) {
+          remoteNoticeRef.current = disk;
+          toast.warning("文件已在外部修改（本地有未保存内容，未自动重载）");
+        }
+      } catch {
+        /* 文件被删/读失败：忽略（资源树刷新已反映） */
+      }
+    });
+    return () => {
+      unP.then((f) => f()).catch(() => {});
+    };
+  }, [workPath, relPath]);
 
   async function handleSave() {
     if (!relPath || saving) return;
