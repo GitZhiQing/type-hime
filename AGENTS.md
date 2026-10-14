@@ -11,12 +11,13 @@ pnpm tauri dev          # 完整桌面应用开发模式（Rust + 前端热更�
 pnpm build              # 前端类型检查 + 构建（tsc && vite build）
 cd src-tauri
 cargo check             # Rust 编译检查（警告保持 0）
-cargo test              # Rust 单测（50 项：git/works/pipeline/lore/ledger/assembly/settings/issues/preflight/session/kernel/approval/bash/permissions/subtask/skills/flows）
+cargo test              # Rust 单测（56 项：git/works/pipeline/lore/ledger/assembly/settings/issues/preflight/session/kernel/approval/bash/permissions/subtask/skills/flows/goal）
 cargo run --example chat_smoke -- <作品目录>      # 冒烟：模型列表+流式+工具+会话+提议
 cargo run --example full_flow -- <作品目录>       # 冒烟：章纲→正文→账本回写
 cargo run --example mvp_flow                       # 交付判据验收（真实模型全流程）
 cargo run --example write_book -- <作品目录>      # 写书测试（6章全流程+埋错审校验证）
 cargo run --example regression                     # 修复回归（2章+8项检查）
+cargo run --example goal_spike -- <作品目录>      # R4.5 spike：目标完成验证器 8 场景（真实模型）
 cargo run --example webapi                         # Web 测试通道（127.0.0.1:18360，配合 pnpm dev
                                                    #   的 /api 代理，浏览器可自动化测试真实后端）
 ```

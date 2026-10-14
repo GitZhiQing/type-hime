@@ -4,6 +4,7 @@
 pub mod approval;
 pub mod bash;
 pub mod events;
+pub mod goal;
 pub mod kernel;
 pub mod session;
 pub mod skills;
