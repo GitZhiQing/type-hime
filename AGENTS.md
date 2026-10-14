@@ -77,3 +77,4 @@ examples/        chat_smoke / full_flow / mvp_flow / write_book / regression / g
 - cargo 构建/测试前先停 webapi（运行中会锁 target/debug/examples/webapi.exe 致 link 失败）：netstat 找 PID → taskkill → 构建 → 重新拉起。
 - 布局溢出两坑（R5 两次踩中）：flex-col 容器内子视图 h-full 按容器全高解析（含工具条时视图整体高一条）——内容区套 min-h-0 flex-1 包裹层；overflow-x-auto 会把 overflow-y 的 visible 计算为 auto，横向溢出连带出竖向滚动条——标签条类用隐藏滚动条（.tabbar-scroll）+ 滚轮/箭头/列表下拉导航。
 - React setState updater 必须纯函数：浅拷贝数组后原地改元素对象（`arr[i].state = ...`）在 dev StrictMode 双调用下会重复累加（曾致并行双卡时流式文本逐词双倍，流结束全量替换后恢复——症状迷惑性强，先查 updater 纯度）。
+- 内嵌浏览器（IAB）会陷入"渲染进程半故障"态：DOM 查询正常但截图残缺/点击 actionability 超时/坐标点击无反应；刷新无效，**关闭标签重开**即恢复（本会话两次踩中）。遇"元素存在但点不动"先怀疑它，别改代码。
