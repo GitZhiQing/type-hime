@@ -240,7 +240,7 @@ pub fn check_visibility_leak(work_dir: &Path) -> Result<Vec<String>, String> {
             // 阈值 4：约 7 字连续复述即提示（专有名词可能误报，检查为提示性而非阻断）
             if overlap >= 4 {
                 warnings.push(format!(
-                    "可见条目「{}」与隐藏条目「{}」有 {} 处 4 字连续片段相同——可见内容可能已泄露隐藏设定，建议改写措辞",
+                    "可见条目 {} 与隐藏条目 {} 有 {} 处 4 字连续片段相同——可见内容可能已泄露隐藏设定，建议改写措辞",
                     visible.name, hidden.name, overlap
                 ));
             }

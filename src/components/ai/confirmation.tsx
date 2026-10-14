@@ -74,7 +74,7 @@ export function ConfirmationCard({
               size="sm"
               variant="ghost"
               className="ml-auto h-7 px-2 text-xs text-amber-600"
-              title="允许本次并将会话切为「完全访问」：后续白名单命令直通、提议自动应用"
+              title="允许本次并将会话切为完全访问：后续白名单命令直通、提议自动应用"
               onClick={() => onGrantFullAccess(approval.id)}
             >
               允许并本会话完全访问

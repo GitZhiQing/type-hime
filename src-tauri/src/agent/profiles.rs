@@ -286,7 +286,7 @@ pub fn render_team_listing() -> Option<String> {
     for p in &all {
         out.push_str(&format!("- {}：{}\n", p.name, p.description));
     }
-    out.push_str("（作者可在「Agents」页创建/编辑更多子 Agent）");
+    out.push_str("（作者可在 Agents 页创建/编辑更多子 Agent）");
     Some(out)
 }
 

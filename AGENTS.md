@@ -73,6 +73,7 @@ examples/        chat_smoke / full_flow / mvp_flow / write_book / regression / g
 - 重构进行中（docs/REFACTOR.md；R1-R17 已完成——R4.5/R5/R8 见 D34-D37、R9 见 D39、R14-R17 见 D41/D44/D45/D46；D47-D55 为用户反馈 UI 批次：装配标签退役、子任务行持久化+子会话标签页、标题栏与面板收起等）：新增命令必须同时进 lib.rs 注册表与 webapi.rs dispatch；新机制在注释/提交信息标注来源（使用经过验证的技术）；剩 R6 收缩版（regression 扩展+文档对齐）+ R18-R20。实施中的选型演化以 DECISIONS D26 起条目为准。
 - 多 Agent（R8）：子 Agent 定义=app data/agents/*.md（md+frontmatter，正文=prompt；内置 general 可覆盖不可删）；spawn_agent 递归硬禁（子 Agent 工具面永远剔除）；子 Agent 落稿同样走 propose_*（红线不因多 Agent 放松）；子会话档案 agent-<名>-<st-id>（含 st-id 防并行覆盖）。
 - Tailwind v4 不扫描 node_modules：第三方组件（e.g. streamdown）的效用类不会生成 CSS——用 @source 显式纳入或写作用域 CSS（曾致复制按钮 pointer-events 失效、物理不可点；同类：streamdown shiki token 只给 --sdm-c/--shiki-dark 变量、应用规则缺，已在 index.css 补——第三方组件样式缺失先查此坑家族）。
+- UI 文案不带装饰性「」『』（用户规则 D59）：强调交给组件样式（strong/Badge/等宽 code），指代 UI 元素直接写名称，标识符用 code；括号只留给内容本身的真实引用。
 - 交互验证必须用真实事件：合成 el.click() 绕过浏览器命中测试会产生假阳性；原生弹层（select/confirm/dialog）在嵌入环境定位不可控，统一用 shadcn 组件（ui/select、Dialog 等，Select 弹层 alignItemWithTrigger=false 标准下方展开）。
 - 装节点（菜单/弹层类）必须真实点开验收：base-ui 的 DropdownMenuLabel 必须包在 DropdownMenuGroup 内（否则展开即白屏 MenuGroupContext is missing，快照看不出）；Playwright 定位点击不可达时，先用 elementFromPoint 核对命中再走坐标级真实点击（cua.click）。
 - cargo 构建/测试前先停 webapi（运行中会锁 target/debug/examples/webapi.exe 致 link 失败）：netstat 找 PID → taskkill → 构建 → 重新拉起；仅跑库测试用 `cargo test --lib` 可避开该锁。

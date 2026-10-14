@@ -141,7 +141,7 @@ export function Launcher() {
     setRenameBusy(true);
     try {
       await api.renameWork(target.path, name);
-      toast.success(`已重命名为「${name}」`);
+      toast.success(`已重命名为 ${name}`);
       setRenameFor(null);
       await reload();
     } catch (e) {
@@ -157,7 +157,7 @@ export function Launcher() {
     setDeleteBusy(true);
     try {
       const trashPath = await api.deleteWork(target.path);
-      toast.success(`「${target.name}」已移入回收站`, {
+      toast.success(`${target.name} 已移入回收站`, {
         description: `可从 ${trashPath} 手动找回`,
       });
       setDeleteFor(null);
@@ -282,7 +282,7 @@ export function Launcher() {
         )}
         {works !== null && works.length === 0 && (
           <p className="text-center text-xs text-muted-foreground">
-            书架还空着——从上面的「新建作品」开始第一本
+            书架还空着——点上面的新建作品开始第一本
           </p>
         )}
       </div>
@@ -385,9 +385,13 @@ export function Launcher() {
       <Dialog open={!!deleteFor} onOpenChange={(v) => !v && setDeleteFor(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除作品「{deleteFor?.name}」？</DialogTitle>
+            <DialogTitle>删除作品 {deleteFor?.name}？</DialogTitle>
             <DialogDescription>
-              作品目录将被移入工作区下的「_回收站」文件夹（可手动找回，不会被直接抹除）。
+              作品目录将被移入工作区下的{" "}
+              <code className="rounded bg-muted/60 px-1 py-0.5 font-mono text-[0.9em]">
+                _回收站
+              </code>{" "}
+              文件夹（可手动找回，不会被直接抹除）。
             </DialogDescription>
           </DialogHeader>
           <p className="truncate rounded-md border bg-muted/40 px-2.5 py-1.5 font-mono text-xs text-muted-foreground" title={deleteFor?.path}>

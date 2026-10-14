@@ -62,7 +62,7 @@ pub fn preflight_cultivation(chapter_text: &str, ledger: &Ledger) -> Vec<String>
             if let Some(found) = realm_level(sent) {
                 if found != expected && realm_level(&entry.body).is_some() {
                     issues.push(format!(
-                        "「{}」：正文写「{}」，账本记录为「{}」。原句：{}",
+                        "{}：正文写 {}，账本记录为 {}。原句：{}",
                         entry.title,
                         realm_label(found),
                         realm_label(expected),

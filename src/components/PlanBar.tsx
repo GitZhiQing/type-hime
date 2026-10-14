@@ -188,7 +188,7 @@ export function PlanBar({ workPath, pipeline, hasSample, next, onChange }: PlanB
                         type="button"
                         className="shrink-0 rounded p-0.5 text-muted-foreground/35 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30"
                         disabled={busy}
-                        title={`重做「${g.label}」（其后确认一并取消）`}
+                        title={`重做${g.label}阶段（其后确认一并取消）`}
                         aria-label={`重做 ${g.label}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -222,10 +222,10 @@ function nextHint(pipeline: PipelineView, hasSample?: boolean): string {
         : "下一步：开始开书访谈（直接对话即可）";
     if (cur.stage === "chapters") return "正文 → /去AI味 精修 → 账本回写，然后确认推进";
     if (cur.stage === "review") return "审校收敛（问题清单清零）即完成本卷";
-    return `完成「${cur.label}」产物后确认推进`;
+    return `完成${cur.label}阶段产物后确认推进`;
   }
   const nextUnconfirmed = pipeline.gates.find((g) => g.enterable && !g.confirmed);
-  if (nextUnconfirmed) return `下一步：进入「${nextUnconfirmed.label}」`;
+  if (nextUnconfirmed) return `下一步：进入${nextUnconfirmed.label}阶段`;
   const anyStage = pipeline.gates.find((g) => g.enterable && !g.current);
-  return anyStage ? `可进入「${anyStage.label}」` : "全部阶段已确认";
+  return anyStage ? `可进入${anyStage.label}阶段` : "全部阶段已确认";
 }

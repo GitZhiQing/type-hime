@@ -254,8 +254,8 @@ export function ChatPane({
       setPermMode(mode);
       toast.info(
         mode === "full_access"
-          ? "已切为「完全访问」：提议自动应用（可见性变更除外）、白名单命令直通"
-          : "已切为「变更前确认」：提议逐条审阅、白名单命令逐条确认",
+          ? "已切为完全访问：提议自动应用（可见性变更除外）、白名单命令直通"
+          : "已切为变更前确认：提议逐条审阅、白名单命令逐条确认",
       );
       onTurnDone(); // 会话列表刷新（档位徽标）
     } catch (e) {
@@ -628,7 +628,7 @@ export function ChatPane({
         permMode === "confirm"
       ) {
         toast.info("长时目标已启动", {
-          description: "建议切换「完全访问」：否则每个 bash/工具确认都会挂起等待",
+          description: "建议切换完全访问档：否则每个 bash/工具确认都会挂起等待",
           action: {
             label: "切完全访问",
             onClick: () => changePermissionMode("full_access"),
@@ -860,7 +860,7 @@ export function ChatPane({
                 />
               ))}
               <div className="text-center text-[10px] text-muted-foreground">
-                提议已入审阅队列；此处或右栏「审阅」任一处处理均可
+                提议已入审阅队列；此处或右栏审阅标签均可处理
               </div>
             </div>
           )}

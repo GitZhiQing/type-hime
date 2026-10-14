@@ -210,7 +210,7 @@ pub fn apply(work_dir: &Path, p: Proposal) -> Result<String, String> {
     }
     if norm(&p.work_path) != cur {
         return Err(format!(
-            "提议 #{}（{}）归属作品「{}」，不能应用到当前作品",
+            "提议 #{}（{}）属于作品 {}，不能应用到当前作品",
             p.id, p.rel_path, p.work_path
         ));
     }

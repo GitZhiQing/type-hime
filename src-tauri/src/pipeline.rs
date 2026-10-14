@@ -128,7 +128,7 @@ impl PipelineState {
         for s in upstream {
             if !self.confirmed.contains(&s) {
                 return Err(format!(
-                    "阶段门拦截：「{}」需要先确认「{}」",
+                    "阶段门拦截：进入{}阶段前需先确认{}阶段",
                     target.label(),
                     s.label()
                 ));
@@ -151,7 +151,7 @@ impl PipelineState {
                 };
                 if !ok {
                     return Err(format!(
-                        "阶段门拦截：「{}」的产物 {} 还不存在",
+                        "阶段门拦截：{}阶段的产物 {} 还不存在",
                         target.label(),
                         artifact
                     ));

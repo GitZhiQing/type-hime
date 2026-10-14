@@ -571,7 +571,7 @@ async fn run_subagent(
     };
     Ok(agent::tools::AgentSpawnOutcome {
         summary: format!(
-            "子 Agent「{}」（{}）完成任务。耗时 {secs}s，用量 ≈{tokens} tokens，新提议 {queued} 件（已入审阅队列等作者接受）。\n\n最终汇报：\n{text}{truncated}",
+            "子 Agent {}（{}）完成任务。耗时 {secs}s，用量 ≈{tokens} tokens，新提议 {queued} 件（已入审阅队列等作者接受）。\n\n最终汇报：\n{text}{truncated}",
             profile.name, req.description
         ),
         tokens,
@@ -853,7 +853,7 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
             "生成正文",
             format!(
                 "请用 spawn_agent 工具委派 general 子 Agent 撰写本章正文（目标文件 {ch_path}）。\n\
-                 委派前你须装配上下文并入委派 prompt：卷纲要点、本章细纲全文（volumes/vol-{volume:02}/chapters/{chapter}-章纲.md；细纲缺章三要素或场景小节时先请作者补细纲再动笔）、账本要点（用 get_ledger 取角色当前状态）、上一章结尾（读上一章文件末段）、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在则整段并入，注明「模仿句风与节奏，不得复用其内容」）。\n\
+                 委派前你须装配上下文并入委派 prompt：卷纲要点、本章细纲全文（volumes/vol-{volume:02}/chapters/{chapter}-章纲.md；细纲缺章三要素或场景小节时先请作者补细纲再动笔）、账本要点（用 get_ledger 取角色当前状态）、上一章结尾（读上一章文件末段）、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在则整段并入，注明“模仿句风与节奏，不得复用其内容”）。\n\
                  要求子 Agent 两步成稿（R16）：第一步按细纲逐场景写草稿——每场景从进点进场、写到出点切出，关键对话按要点成戏，场景一个不减；第二步换读者视角重读全文，按 writer-basics 纪律精修（删无功能细节、长短句交排、每轮对话有状态位移、删一轮可删冗余）后再全文一次 propose_write；自检与账本不冲突、不提前说破伏笔、对照文风卡禁例与样章节奏。{chapter_hint}\n\
                  交付后向作者提示：落稿下一站跑 /去AI味（30% 重点段落精修），精修后再回写账本。"
             ),
@@ -880,7 +880,7 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
             format!(
                 "请用 spawn_agent 工具委派 general 子 Agent 对本章做精修（情节/人设/事实/伏笔一处不动）。\n\
                  委派前你须装配上下文并入委派 prompt：本章正文 {ch_path} 全文、文风卡（style/文风指令.md）与文风样章（style/样章.md，若存在，改写后须贴合其句风与节奏）。\n\
-                 要求子 Agent 按 30% 重点段落精修（R16，三轮修改法之「去 AI 味」轮）：先挑出重点段——开头 3 段、结尾 2 段、核心转折段；对重点段深修（删套话与万能形容、删无指向装饰细节、拆均质句式、把概述落到具体动作与对话、贴近样章节奏）；其余段落只改明显违规处，不动行文。propose_edit 提交整章全文。{chapter_hint}"
+                 要求子 Agent 按 30% 重点段落精修（R16，三轮修改法的去 AI 味轮）：先挑出重点段——开头 3 段、结尾 2 段、核心转折段；对重点段深修（删套话与万能形容、删无指向装饰细节、拆均质句式、把概述落到具体动作与对话、贴近样章节奏）；其余段落只改明显违规处，不动行文。propose_edit 提交整章全文。{chapter_hint}"
             ),
         )),
         "复检" => Some((
@@ -895,7 +895,7 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
             "卷级批审",
             format!(
                 "请对第 {volume} 卷逐章一致性批审——用 spawn_agent 工具**并行委派**：先 read 卷纲确认章目（volumes/vol-{volume:02}/卷纲.md 与 chapters 目录），然后为每一章在同一条回复里发一个 spawn_agent 调用（各章互不依赖，可并发）。\n\
-                 每个委派 prompt 带上：该章正文文件路径、账本要点（get_ledger 一次取好）、该章既有问题清单要点，以及「按 review-consistency 规程输出编号问题清单、先跑 preflight」的要求。\n\
+                 每个委派 prompt 带上：该章正文文件路径、账本要点（get_ledger 一次取好）、该章既有问题清单要点，并要求按 review-consistency 规程输出编号问题清单、先跑 preflight。\n\
                  全部返回后：逐章把问题清单交 record_issues 落盘，并向作者汇总各章问题数与总体结论。"
             ),
         )),
@@ -931,7 +931,7 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
         // R15 开书工作室：访谈是对话式（根 Agent 亲自做多轮），不走 spawn_agent 委派模板
         "开书" | "访谈" => Some((
             "开书访谈",
-            "请按「开书」技能的开书访谈规程执行：访谈未完成 → 从下一个未回答的问题继续（一次一问）；\
+            "请按开书技能的开书访谈规程执行：访谈未完成 → 从下一个未回答的问题继续（一次一问）；\
              五件套已产出 → 向作者汇报开书现状，返工需求按规程的产出标准执行。"
                 .to_string(),
         )),

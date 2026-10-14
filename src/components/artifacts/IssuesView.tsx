@@ -95,7 +95,7 @@ export function IssuesView({ workPath, refreshKey = 0 }: IssuesViewProps) {
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {issues.length === 0
               ? "还没有问题清单——一致性检查 / 复检 / 审卷后按章落盘到这里"
-              : "没有未决问题（切掉「只看未决」可回看裁决档案）"}
+              : "没有未决问题——关掉只看未决即可回看裁决档案"}
           </div>
         ) : (
           <div className="flex flex-col gap-2">

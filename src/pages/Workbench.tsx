@@ -246,7 +246,7 @@ export function Workbench() {
         {usage && (usage.input_tokens > 0 || usage.output_tokens > 0) && (
           <span
             className="ml-auto text-[11px] text-muted-foreground"
-            title="本作品全部 agent 调用的真实 token 用量（provider 计数；明细见制品面板「成本」）"
+            title="本作品全部 agent 调用的真实 token 用量（provider 计数；明细见制品面板的成本标签）"
           >
             ≈{((usage.input_tokens + usage.output_tokens) / 10000).toFixed(1)}万 tokens
           </span>

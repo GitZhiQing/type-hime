@@ -73,7 +73,7 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
         <div>暂无待审提议。AI 的修改会以提议出现在这里，接受才落盘。</div>
         <div className="text-xs">
-          「账本回写自动接受」已并入权限档位：会话切「完全访问」后提议自动应用
+          账本回写自动接受已并入权限档位：会话切到完全访问后，提议自动应用
           （可见性变更仍需人工）。
         </div>
       </div>

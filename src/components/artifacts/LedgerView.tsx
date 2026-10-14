@@ -57,7 +57,9 @@ export function LedgerView({ workPath }: { workPath: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {total === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            账本为空——正文经「/回写」提取状态变化后在这里积累
+            账本为空——运行
+            <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]">/回写</code>
+            后，正文提取的状态变化会在这里积累
           </div>
         ) : (
           SECTIONS.map(({ key, label }) =>
