@@ -745,10 +745,13 @@ export function ChatPane({
                 onChange={changePermissionMode}
               />
             )}
-            {isWork && workPath && (
-              <ContextUsage workPath={workPath} sessionId={sessionId} refreshKey={turnKey} />
-            )}
-            <PromptInputSubmit />
+            {/* R10：容量图标与发送按钮成组贴右（图标在发送左侧） */}
+            <div className="ml-auto flex items-center gap-1">
+              {isWork && workPath && (
+                <ContextUsage workPath={workPath} sessionId={sessionId} refreshKey={turnKey} />
+              )}
+              <PromptInputSubmit />
+            </div>
           </PromptInputToolbar>
         </PromptInput>
       </div>
