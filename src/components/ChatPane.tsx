@@ -10,7 +10,7 @@ import {
   TreeNode,
 } from "@/lib/tauri";
 import { toast } from "sonner";
-import { Loader2, Target } from "lucide-react";
+import { Loader2, ShieldCheck, Target } from "lucide-react";
 import { ToolCallCard, type ToolCallData } from "@/components/ai/tool";
 import {
   Conversation,
@@ -103,6 +103,8 @@ export function ChatPane({
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
   /** 本轮的子任务卡（R4：run_flow 长流程的过程展示） */
   const [subtasks, setSubtasks] = useState<TaskView[]>([]);
+  /** 审校类子任务完成后的问题摘要卡（R5-③：点击跳问题清单制品标签） */
+  const [issueNotice, setIssueNotice] = useState<{ open: number; total: number } | null>(null);
   /** 当前会话权限档位（R4-③：输入框左下角下拉；scope=work） */
   const [permMode, setPermMode] = useState<PermissionMode>("confirm");
   const busyRef = useRef(false);
@@ -300,6 +302,7 @@ export function ChatPane({
     setInlineProposals([]);
     setApprovals([]);
     setSubtasks([]);
+    setIssueNotice(null);
     busyRef.current = true;
 
     // R4-⑥：slash 不再前端直调命令——一律作为消息发给 Agent（后端把 /命令 参数
@@ -402,8 +405,30 @@ export function ChatPane({
         }),
       );
     } else if (ev.type === "sub_task_end") {
-      setSubtasks((list) =>
-        list.map((t) =>
+      setSubtasks((list) => {
+        const task = list.find((t) => t.id === ev.id);
+        // 审校类流程完成 → 拉问题清单计数渲染内联摘要卡（R5-③；延迟等 issues.json 落盘）
+        if (
+          isWork &&
+          workPath &&
+          task &&
+          ev.status === "done" &&
+          /一致性|复检|审卷|批审|审校/.test(task.label)
+        ) {
+          window.setTimeout(async () => {
+            try {
+              const issues = await api.listIssues(workPath);
+              const open = issues.filter(
+                (i) => i.status === "open" || i.status === "needs_ruling",
+              ).length;
+              setIssueNotice({ open, total: issues.length });
+              window.dispatchEvent(new CustomEvent("issues:changed"));
+            } catch {
+              /* 无清单文件 */
+            }
+          }, 2000);
+        }
+        return list.map((t) =>
           t.id === ev.id
             ? {
                 ...t,
@@ -411,8 +436,8 @@ export function ChatPane({
                 summary: ev.summary,
               }
             : t,
-        ),
-      );
+        );
+      });
     } else if (ev.type === "proposal_applied") {
       // 完全访问档自动应用（R4-③）：内联卡标记为已接受 + 通知审阅 Tab 刷新
       setInlineProposals((list) =>
@@ -558,6 +583,25 @@ export function ChatPane({
                 <TaskCard key={t.id} task={t} />
               ))}
             </div>
+          )}
+          {issueNotice && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-xs transition-colors hover:bg-amber-500/20"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("artifacts:open", { detail: { kind: "issues" } }),
+                )
+              }
+            >
+              <ShieldCheck className="size-3.5 shrink-0 text-amber-600" />
+              <span>
+                审校完成：问题清单共 {issueNotice.total} 条（{issueNotice.open} 未决）
+              </span>
+              <span className="ml-auto shrink-0 font-medium text-amber-700">
+                打开问题清单 →
+              </span>
+            </button>
           )}
           {approvals.length > 0 && (
             <div className="flex flex-col gap-2">

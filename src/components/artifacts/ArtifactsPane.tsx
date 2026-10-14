@@ -33,6 +33,7 @@ import { LedgerView } from "@/components/artifacts/LedgerView";
 import { UsageView } from "@/components/artifacts/UsageView";
 import { GitView } from "@/components/artifacts/GitView";
 import { SkillsView } from "@/components/artifacts/SkillsView";
+import { AssemblyPane } from "@/components/AssemblyPane";
 
 /**
  * 制品面板（R5-① · REDESIGN §5.2/§5.5）：VS Code 式多标签组。
@@ -174,6 +175,30 @@ export function ArtifactsPane({
 
   const active = tabs.find((t) => t.id === activeId);
 
+  // 聊天内联问题卡等入口的跨组件开签请求（R5-③：detail.kind 指定制品）
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const kind = (e as CustomEvent<{ kind: ArtifactKind }>).detail?.kind;
+      if (!kind || kind === "doc") return;
+      const def = SINGLETONS.find((s) => s.kind === kind);
+      if (!def) return;
+      setTabState((cur) => {
+        const existing = cur.tabs.find((t) => t.kind === kind);
+        const next = existing
+          ? { tabs: cur.tabs, activeId: existing.id }
+          : { tabs: [...cur.tabs, { id: kind, kind, title: def.title }], activeId: kind };
+        try {
+          localStorage.setItem(storageKey(workPath), JSON.stringify(next));
+        } catch {
+          /* 忽略持久化失败 */
+        }
+        return next;
+      });
+    };
+    window.addEventListener("artifacts:open", onOpen);
+    return () => window.removeEventListener("artifacts:open", onOpen);
+  }, [workPath]);
+
   return (
     <section className="flex h-full min-w-0 flex-col">
       {/* 标签条 */}
@@ -278,6 +303,8 @@ export function ArtifactsPane({
           <IssuesView workPath={workPath} refreshKey={refreshKey} />
         ) : active.kind === "ledger" ? (
           <LedgerView workPath={workPath} />
+        ) : active.kind === "assembly" ? (
+          <AssemblyPane workPath={workPath} />
         ) : active.kind === "usage" ? (
           <UsageView workPath={workPath} refreshKey={refreshKey} />
         ) : active.kind === "git" ? (
