@@ -25,10 +25,12 @@ import { toast } from "sonner";
 interface PlanBarProps {
   workPath: string;
   pipeline: PipelineView;
+  /** R15：样章是否已产出（设定阶段提示区分「开始访谈」与「已产出待确认」） */
+  hasSample?: boolean;
   onChange: (p: PipelineView) => void;
 }
 
-export function PlanBar({ workPath, pipeline, onChange }: PlanBarProps) {
+export function PlanBar({ workPath, pipeline, hasSample, onChange }: PlanBarProps) {
   const [busy, setBusy] = useState(false);
 
   async function act(
@@ -82,7 +84,7 @@ export function PlanBar({ workPath, pipeline, onChange }: PlanBarProps) {
         </div>
         <span className="text-muted-foreground">{confirmedCount}/{pipeline.gates.length}</span>
         <span className="ml-1 hidden truncate text-muted-foreground sm:inline">
-          {nextHint(pipeline)}
+          {nextHint(pipeline, hasSample)}
         </span>
         <div className="ml-auto flex items-center gap-1">
           {current && !current.confirmed && (
@@ -193,10 +195,15 @@ export function PlanBar({ workPath, pipeline, onChange }: PlanBarProps) {
 
 type api_stage = Parameters<typeof api.pipelineEnter>[1];
 
-function nextHint(pipeline: PipelineView): string {
+function nextHint(pipeline: PipelineView, hasSample?: boolean): string {
   const cur = pipeline.gates.find((g) => g.current);
   if (!cur) return "点击阶段进入流水线";
   if (!cur.confirmed) {
+    // R15 开书工作室：设定阶段下一步 = 开书访谈（直接对话即可，零命令）
+    if (cur.stage === "settings")
+      return hasSample
+        ? "开书五件套已产出：审阅接受后确认推进"
+        : "下一步：开始开书访谈（直接对话即可）";
     if (cur.stage === "chapters") return "完成本章正文与账本回写后确认推进";
     if (cur.stage === "review") return "审校收敛（问题清单清零）即完成本卷";
     return `完成「${cur.label}」产物后确认推进`;

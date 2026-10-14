@@ -310,8 +310,13 @@ pub async fn chat_flow_global(
 
 /// chat spec 构建：技能动态挂载（默认 writer-basics + slash 强制 + 关键词路由）
 /// + 子 Agent 团队清单注入（R8-③：根 Agent 需要知道可委派谁）。
+/// R15 开书工作室：开书待办（设定阶段未确认且 style/样章.md 未产出）→ 开书访谈规程自动挂载；
+/// 每轮重建 spec 时重判 → 访谈跨会话天然可续，老作品（阶段已推进/样章已存在）零影响。
 fn chat_spec_for_prompt(prompt: &str, work_dir: &std::path::Path) -> AgentSpec {
     let mut extra = agent::skills::route_skills(prompt, Some(work_dir));
+    if kickoff_pending(work_dir) {
+        extra.push("开书".to_string());
+    }
     if let Some(s) = agent::spec::slash_forced_skill(prompt) {
         extra.push(s.to_string());
     }
@@ -320,6 +325,18 @@ fn chat_spec_for_prompt(prompt: &str, work_dir: &std::path::Path) -> AgentSpec {
         spec.sections.push(("team".to_string(), team));
     }
     spec
+}
+
+/// 开书访谈是否待办（R15）：设定阶段未确认 && style/样章.md 不存在（样章由访谈产出，
+/// 是「开书已完成」的干净信号；总纲/文风卡模板含注释占位，不能用非空判断）。
+/// project.json 读不出按非待办处理（本函数只对真实作品目录调用）。
+fn kickoff_pending(work_dir: &std::path::Path) -> bool {
+    if work_dir.join("style").join("样章.md").is_file() {
+        return false;
+    }
+    pipeline::load_pipeline(work_dir)
+        .map(|p| p.stage == Stage::Settings && !p.confirmed.contains(&Stage::Settings))
+        .unwrap_or(false)
 }
 
 /// chat 工具上下文构建（每轮重建：档位/覆盖表随会话档案与 project.json 变化）。
@@ -835,6 +852,13 @@ pub fn slash_instruction(prompt: &str) -> Option<String> {
                 ),
             ))
         }
+        // R15 开书工作室：访谈是对话式（根 Agent 亲自做多轮），不走 spawn_agent 委派模板
+        "开书" | "访谈" => Some((
+            "开书访谈",
+            "请按「开书」技能的开书访谈规程执行：访谈未完成 → 从下一个未回答的问题继续（一次一问）；\
+             五件套已产出 → 向作者汇报开书现状，返工需求按规程的产出标准执行。"
+                .to_string(),
+        )),
         _ => None,
     };
     if let Some((label, body)) = delegation {
@@ -889,6 +913,51 @@ mod tests {
         // 非 slash / 未知命令
         assert!(slash_instruction("普通消息").is_none());
         assert!(slash_instruction("/不存在 1").is_none());
+    }
+
+    /// R15 开书工作室：开书待办判定（设定未确认 && 无样章）+ chat spec 条件挂载 + /开书 slash。
+    #[test]
+    fn kickoff_pending_and_spec_mount() {
+        let dir = std::env::temp_dir().join(format!(
+            "type-hime-kickoff-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("style")).unwrap();
+        // 最小 project.json（pipeline 字段缺省 = 设定阶段未确认）
+        std::fs::write(
+            dir.join("project.json"),
+            r#"{"name":"t","created_at":"2026"}"#,
+        )
+        .unwrap();
+
+        // 开书待办：普通消息也自动挂载开书技能（条件挂载主路径，不靠关键词）
+        assert!(kickoff_pending(&dir));
+        let spec = chat_spec_for_prompt("你好", &dir);
+        assert!(spec.skills.contains(&"开书".to_string()), "{:?}", spec.skills);
+
+        // 样章产出 → 开书完成，不再挂载
+        std::fs::write(dir.join("style/样章.md"), "样章正文").unwrap();
+        assert!(!kickoff_pending(&dir));
+        let spec = chat_spec_for_prompt("你好", &dir);
+        assert!(!spec.skills.contains(&"开书".to_string()), "{:?}", spec.skills);
+
+        // 老作品：设定已确认且阶段推进 → 即使无样章也不挂载
+        std::fs::remove_file(dir.join("style/样章.md")).unwrap();
+        let mut p = pipeline::load_pipeline(&dir).unwrap();
+        p.confirmed.push(Stage::Settings);
+        p.stage = Stage::Outline;
+        pipeline::save_pipeline(&dir, &p).unwrap();
+        assert!(!kickoff_pending(&dir));
+
+        // /开书 slash：指令块引用规程 + 强制技能映射（成熟作品仍可显式重入）
+        let s = slash_instruction("/开书").unwrap();
+        assert!(s.contains("开书访谈规程"), "{s}");
+        assert_eq!(agent::spec::slash_forced_skill("/开书"), Some("开书"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// /goal 控制子命令不进 LLM：改会话档案 + 发 GoalUpdate/Final 事件（R4.5-②）。

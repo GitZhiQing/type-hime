@@ -22,10 +22,19 @@ import { ArrowLeft } from "lucide-react";
  * 项目页（R5-① 起三栏 = 会话列表 | 聊天 | 制品面板；REDESIGN §5.2）。
  * 左栏资源树/git 历史已移入制品面板（文稿标签侧栏 / git 标签）。
  */
+
+/** 树里是否已有某文件（R15：样章存在 = 开书完成信号） */
+function treeHasPath(node: TreeNode | null, path: string): boolean {
+  if (!node) return false;
+  if (!node.is_dir && node.path === path) return true;
+  return node.children.some((c) => treeHasPath(c, path));
+}
+
 export function Workbench() {
   const navigate = useNavigate();
   const location = useLocation();
-  const work = (location.state as { work: WorkSummary } | null)?.work;
+  const navState = location.state as { work: WorkSummary; kickoff?: boolean } | null;
+  const work = navState?.work;
 
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [selected, setSelected] = useState<TreeNode | null>(null);
@@ -38,6 +47,18 @@ export function Workbench() {
   const [sessionRefresh, setSessionRefresh] = useState(0);
 
   const workPath = work?.path ?? "";
+
+  // R15 开书工作室：从「新建作品」进入 → 剥离导航标志（防刷新/重挂载重放）后延迟派发开场事件
+  // （仿 goal:resume 先例，由 ChatPane 以聊天流驱动发送 /开书）。定时器不清理是刻意的：
+  // cleanup 会吞掉 StrictMode 双挂载下唯一一次派发，重放由 ref 守卫 + 标志剥离共同拦住。
+  const kickoffFiredRef = useRef(false);
+  useEffect(() => {
+    if (!work || !navState?.kickoff || kickoffFiredRef.current) return;
+    kickoffFiredRef.current = true;
+    navigate(location.pathname, { replace: true, state: { work } });
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("kickoff:start")), 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [work, navState, navigate, location.pathname]);
 
   /** 新建会话：生成 id、设为当前并返回（R1：会话状态上移到页面层） */
   function createSession() {
@@ -89,6 +110,14 @@ export function Workbench() {
       toast.error(String(e));
     }
   }
+
+  // R15：样章是否已产出（开书完成信号）与访谈是否可开始（自动开场失败时的空态兜底入口）
+  const hasSample = treeHasPath(tree, "style/样章.md");
+  const kickoffAvailable =
+    !!pipeline &&
+    pipeline.stage === "settings" &&
+    pipeline.confirmed.length === 0 &&
+    !hasSample;
 
   useEffect(() => {
     if (!work) {
@@ -186,6 +215,7 @@ export function Workbench() {
             sessionId={sessionId}
             onNewSession={createSession}
             onTurnDone={() => setSessionRefresh((k) => k + 1)}
+            kickoffAvailable={kickoffAvailable}
             planSlot={
               <>
                 <GoalBar
@@ -197,6 +227,7 @@ export function Workbench() {
                   <PlanBar
                     workPath={workPath}
                     pipeline={pipeline}
+                    hasSample={hasSample}
                     onChange={setPipeline}
                   />
                 )}

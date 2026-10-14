@@ -109,6 +109,8 @@ pub fn slash_forced_skill(prompt: &str) -> Option<&'static str> {
         "回写" => "ledger-update",
         "一致性" | "去AI味" | "复检" | "审卷" => "review-consistency",
         "整理账本" => "ledger-tidy",
+        // R15 开书工作室：访谈规程技能（显式重入口；主路径是 flows::kickoff_pending 条件挂载）
+        "开书" | "访谈" => "开书",
         _ => return None,
     })
 }

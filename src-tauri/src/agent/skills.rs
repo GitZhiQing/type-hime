@@ -30,6 +30,8 @@ const BUILTIN_SKILLS: &[(&str, &str)] = &[
         include_str!("skills/review-consistency.md"),
     ),
     ("ledger-tidy.md", include_str!("skills/ledger-tidy.md")),
+    // R15 开书工作室：访谈规程（条件挂载见 flows::kickoff_pending；关键词路由供自然语言入口）
+    ("开书.md", include_str!("skills/开书.md")),
 ];
 
 /// 解析单个 md 文件为 Skill；frontmatter 缺 name 时以文件名为名。
@@ -314,5 +316,17 @@ mod tests {
         // 技能名直呼也命中
         let by_name = route_skills("请按 review-consistency 规程来", None);
         assert!(by_name.contains(&"review-consistency".to_string()));
+    }
+
+    #[test]
+    fn routing_kickoff_keywords() {
+        // R15 开书：自然语言命中关键词即挂载（另一主路径是 flows::kickoff_pending 条件挂载）
+        let hit = route_skills("我想开一本新书，帮我把设定理一理", None);
+        assert!(hit.contains(&"开书".to_string()), "「新书」应命中开书技能：{hit:?}");
+        let hit2 = route_skills("开始访谈吧", None);
+        assert!(hit2.contains(&"开书".to_string()), "「访谈」应命中开书技能：{hit2:?}");
+        // 写作中的普通对话不误挂
+        let none = route_skills("把这一章的对话改得更贴人设", None);
+        assert!(!none.contains(&"开书".to_string()), "不应误挂开书：{none:?}");
     }
 }

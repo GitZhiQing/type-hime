@@ -10,7 +10,8 @@ import {
   TreeNode,
 } from "@/lib/tauri";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, Target } from "lucide-react";
+import { Loader2, ShieldCheck, Sparkles, Target } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { ToolCallCard, type ToolCallData } from "@/components/ai/tool";
 import {
   Conversation,
@@ -48,6 +49,8 @@ interface ChatProps {
   onNewSession: () => string;
   /** 一轮对话完成后回调（父层刷新会话列表，自动标题已落盘） */
   onTurnDone: () => void;
+  /** R15 开书工作室：开书访谈可开始（空态显示「开始访谈」按钮，兜底自动开场失败） */
+  kickoffAvailable?: boolean;
   /** 输入框上方的插槽（work 作用域放 PLAN 条；REDESIGN §5.4） */
   planSlot?: ReactNode;
 }
@@ -90,6 +93,7 @@ export function ChatPane({
   sessionId,
   onNewSession,
   onTurnDone,
+  kickoffAvailable,
   planSlot,
 }: ChatProps) {
   const [messages, setMessages] = useState<MessageView[]>([]);
@@ -352,6 +356,17 @@ export function ChatPane({
     };
     window.addEventListener("goal:resume", onResume);
     return () => window.removeEventListener("goal:resume", onResume);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWork, workPath, sessionId]);
+
+  // R15 开书工作室：新建作品自动开场（Workbench 的 kickoff:start 事件）→ 以 /开书 开启访谈
+  useEffect(() => {
+    const onKickoff = () => {
+      if (!isWork || busyRef.current) return;
+      sendText("/开书");
+    };
+    window.addEventListener("kickoff:start", onKickoff);
+    return () => window.removeEventListener("kickoff:start", onKickoff);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWork, workPath, sessionId]);
 
@@ -700,7 +715,14 @@ export function ChatPane({
                     : undefined
               }
               icon={busy ? <Loader2 className="size-5 animate-spin" /> : undefined}
-            />
+            >
+              {isWork && kickoffAvailable && !busy && (
+                <Button size="sm" variant="outline" onClick={() => sendText("/开书")}>
+                  <Sparkles data-icon="inline-start" />
+                  开始开书访谈
+                </Button>
+              )}
+            </ConversationEmptyState>
           )}
         </ConversationContent>
         <ConversationScrollButton />
