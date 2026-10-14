@@ -295,7 +295,6 @@ export function ArtifactsPane({
             selected={selected}
             onSelect={onSelectFile}
             onAction={onFileAction}
-            onFileCreated={onTreeChanged}
           />
         ) : active.kind === "review" ? (
           <DiffPane workPath={workPath} onApplied={onTreeChanged} />

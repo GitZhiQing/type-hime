@@ -16,7 +16,7 @@ import { ArtifactsPane } from "@/components/artifacts/ArtifactsPane";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 /**
  * 项目页（R5-① 起三栏 = 会话列表 | 聊天 | 制品面板；REDESIGN §5.2）。
@@ -31,6 +31,9 @@ export function Workbench() {
   const [selected, setSelected] = useState<TreeNode | null>(null);
   const [pipeline, setPipeline] = useState<PipelineView | null>(null);
   const [settings, setSettings] = useState<SettingMeta[]>([]);
+  const [usage, setUsage] = useState<{ input_tokens: number; output_tokens: number } | null>(
+    null,
+  );
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionRefresh, setSessionRefresh] = useState(0);
 
@@ -46,14 +49,16 @@ export function Workbench() {
   const refresh = useCallback(async () => {
     if (!workPath) return;
     try {
-      const [t, p, s] = await Promise.all([
+      const [t, p, s, u] = await Promise.all([
         api.readTree(workPath),
         api.getPipeline(workPath),
         api.listSettings(workPath).catch(() => [] as SettingMeta[]),
+        api.getUsageSummary(workPath).catch(() => null),
       ]);
       setTree(t);
       setPipeline(p);
       setSettings(s);
+      setUsage(u);
     } catch (e) {
       toast.error(String(e));
     }
@@ -103,15 +108,14 @@ export function Workbench() {
         </Button>
         <span className="text-sm font-semibold">{work.name}</span>
         <span className="text-xs text-muted-foreground">{work.path}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto h-8 px-2 text-xs"
-          onClick={refresh}
-        >
-          <RefreshCw data-icon="inline-start" />
-          刷新
-        </Button>
+        {usage && (usage.input_tokens > 0 || usage.output_tokens > 0) && (
+          <span
+            className="ml-auto text-[11px] text-muted-foreground"
+            title="本作品全部 agent 调用的真实 token 用量（provider 计数；明细见制品面板「成本」）"
+          >
+            ≈{((usage.input_tokens + usage.output_tokens) / 10000).toFixed(1)}万 tokens
+          </span>
+        )}
       </header>
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1">

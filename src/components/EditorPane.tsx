@@ -4,16 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Save, Loader2, FilePlus2, EyeOff, Eye, Pencil } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Save, Loader2, EyeOff, Eye, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { MessageResponse } from "@/components/ai/response";
@@ -23,7 +14,6 @@ interface EditorProps {
   workPath: string;
   /** 当前打开的文件相对路径，null 为空 */
   relPath: string | null;
-  onFileCreated: () => void;
 }
 
 /** 编辑/预览分段按钮样式（激活态反色） */
@@ -34,13 +24,11 @@ function cnEditBtn(active: boolean): string {
   ].join(" ");
 }
 
-export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
+export function EditorPane({ workPath, relPath }: EditorProps) {
   const [content, setContent] = useState("");
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newPath, setNewPath] = useState("");
   const [error, setError] = useState("");
   const [settingHidden, setSettingHidden] = useState(false);
   const [settingOpenAt, setSettingOpenAt] = useState<string>("");
@@ -121,20 +109,6 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
     }
   }
 
-  async function handleCreate() {
-    const p = newPath.trim();
-    if (!p) return;
-    setError("");
-    try {
-      await api.createFile(workPath, p, "");
-      setCreateOpen(false);
-      setNewPath("");
-      onFileCreated();
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
   return (
     <section className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs font-medium text-muted-foreground">
@@ -167,15 +141,6 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
               </button>
             </span>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={() => setCreateOpen(true)}
-          >
-            <FilePlus2 data-icon="inline-start" />
-            新建文件
-          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -277,34 +242,6 @@ export function EditorPane({ workPath, relPath, onFileCreated }: EditorProps) {
         </div>
       )}
       <Separator />
-
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>新建文件</DialogTitle>
-            <DialogDescription>
-              相对作品根的路径，自动创建父目录。例如 volumes/vol-01/chapters/ch-001.md
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="new-file-path">路径</FieldLabel>
-              <Input
-                id="new-file-path"
-                value={newPath}
-                onChange={(e) => setNewPath(e.currentTarget.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                placeholder="volumes/vol-01/chapters/ch-001.md"
-              />
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button onClick={handleCreate} disabled={!newPath.trim()}>
-              创建
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </section>
   );
 }
