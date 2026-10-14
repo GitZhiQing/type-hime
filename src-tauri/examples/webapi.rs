@@ -557,6 +557,22 @@ async fn dispatch(Path(cmd): Path<String>, body: Option<Json<Value>>) -> Respons
         }
         "list_tools" => ok!(Ok::<_, String>(type_hime_lib::agent::tools::list_tool_meta())),
 
+        // ---- 作品文件监听（R13：应用外变更 → work:changed 广播） ----
+        "watch_work" => ok!({
+            let wp = s("workPath");
+            let wp2 = wp.clone();
+            let bcast = events().clone();
+            type_hime_lib::watch::start(&PathBuf::from(&wp), move || {
+                let _ = bcast.send(
+                    json!({"event": "work:changed", "payload": {"work_path": wp2.clone()}}).to_string(),
+                );
+            })
+        }),
+        "unwatch_work" => {
+            type_hime_lib::watch::stop();
+            ok!(Ok::<_, String>(()))
+        }
+
         other => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("未知命令：{other}")})),

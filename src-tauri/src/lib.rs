@@ -11,6 +11,7 @@ pub mod preflight;
 pub mod permissions;
 pub mod review;
 pub mod settings;
+pub mod watch;
 pub mod works;
 
 use std::path::PathBuf;
@@ -480,6 +481,26 @@ fn list_tools() -> Result<Vec<agent::tools::ToolMeta>, String> {
     Ok(agent::tools::list_tool_meta())
 }
 
+// ---------------------------------------------------------------------------
+// 作品目录文件监听（R13）：应用外变更 → work:changed 事件 → 前端刷新树/git
+
+/// 启动当前作品的文件监听（幂等；换作品自动切换）。前端进入作品页调用。
+#[tauri::command]
+fn watch_work(app: AppHandle, work_path: String) -> Result<(), String> {
+    let dir = PathBuf::from(&work_path);
+    let wp = work_path.clone();
+    watch::start(&dir, move || {
+        let _ = app.emit("work:changed", serde_json::json!({ "work_path": wp }));
+    })
+}
+
+/// 停止文件监听（前端离开作品页调用）。
+#[tauri::command]
+fn unwatch_work() -> Result<(), String> {
+    watch::stop();
+    Ok(())
+}
+
 #[tauri::command]
 async fn chat_stream(
     app: AppHandle,
@@ -831,6 +852,8 @@ pub fn run() {
             get_agent_profile,
             save_agent_profile,
             list_tools,
+            watch_work,
+            unwatch_work,
             chat_stream,
             chat_stream_global,
             decide_approval,

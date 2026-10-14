@@ -30,6 +30,7 @@ schemars = "1"
 similar = "2"
 # 审批挂起（R4 Spike A）：oneshot 通道 + 超时 + spawn_blocking 执行
 tokio = { version = "1", features = ["rt", "sync", "time"] }
+notify = "8.2.0"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "sync", "time"] }
