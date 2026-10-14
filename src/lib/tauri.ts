@@ -545,6 +545,10 @@ export const api = {
   writeSkill: (workPath: string, name: string, content: string) =>
     call<void>("write_skill", { workPath, name, content }),
 
+  // 作品文件监听（R13：应用外变更 → work:changed 事件）
+  watchWork: (workPath: string) => call<void>("watch_work", { workPath }),
+  unwatchWork: () => call<void>("unwatch_work"),
+
   // 子 Agent 管理（R8-②：用户级 AgentProfile CRUD）
   listAgents: () => call<AgentMeta[]>("list_agents"),
   readAgent: (name: string) => call<AgentRaw>("read_agent", { name }),

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   api,
+  listenCompat,
   PipelineView,
   SettingMeta,
   TreeNode,
@@ -63,6 +64,16 @@ export function Workbench() {
     }
   }, [workPath]);
 
+  // 事件源刷新调度（R13）：watcher 已防抖 400ms，此处再节流 800ms 防事件风暴；
+  // 用户主动操作（删除/恢复等）仍直调 refresh（即时反馈优先）
+  const refreshThrottleRef = useRef(0);
+  const scheduleRefresh = useCallback(() => {
+    const now = Date.now();
+    if (now - refreshThrottleRef.current < 800) return;
+    refreshThrottleRef.current = now;
+    refresh();
+  }, [refresh]);
+
   async function handleFileAction(action: "delete" | "restore", node: TreeNode) {
     try {
       if (action === "delete") {
@@ -85,11 +96,46 @@ export function Workbench() {
       return;
     }
     refresh();
-    // 聊天内联提议卡片接受落盘后同步资源树（R2-③）
-    const onReviewChanged = () => refresh();
+    // 聊天内联提议卡片接受落盘后同步资源树（R2-③）；watcher/focus 亦经 scheduleRefresh 合流
+    const onReviewChanged = () => scheduleRefresh();
     window.addEventListener("review:changed", onReviewChanged);
     return () => window.removeEventListener("review:changed", onReviewChanged);
-  }, [work, refresh, navigate]);
+  }, [work, refresh, navigate, scheduleRefresh]);
+
+  // 作品目录文件监听（R13：应用外变更——外部编辑器/终端 git/文件管理器 → 树与 git 历史同步）
+  useEffect(() => {
+    if (!workPath) return;
+    api.watchWork(workPath).catch(() => {});
+    const unP = listenCompat<{ work_path?: string }>("work:changed", (e) => {
+      if (e.payload?.work_path && e.payload.work_path !== workPath) return;
+      scheduleRefresh();
+    });
+    return () => {
+      api.unwatchWork().catch(() => {});
+      unP.then((f) => f()).catch(() => {});
+    };
+  }, [workPath, scheduleRefresh]);
+
+  // 聚焦兜底（R13 方案 B）：切出改完切回来时刷新一次（3s 节流；覆盖 watcher 失效场景）
+  useEffect(() => {
+    if (!workPath) return;
+    let last = 0;
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - last < 3000) return;
+      last = now;
+      refresh();
+    };
+    const onVisible = () => {
+      if (!document.hidden) onFocus();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [workPath, refresh]);
 
   if (!work) return null;
 
