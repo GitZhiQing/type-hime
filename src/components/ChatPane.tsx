@@ -150,6 +150,9 @@ export function ChatPane({
    *  → delegation:new 事件 → 制品栏委派标签页（写作上下文可见） */
   const spawnCallsRef = useRef<{ prompt: string | null }[]>([]);
   const subtaskSeqRef = useRef(0);
+  /** D61：新会话首条消息的会话 id——置位后加载 effect 跳过首轮重载，
+   *  否则新建 id 触发的「会话切换」会把刚设置的流式状态清空（首轮整轮空态 loading） */
+  const freshSessionRef = useRef<string | null>(null);
 
   const isWork = scope === "work" && !!workPath;
 
@@ -184,6 +187,12 @@ export function ChatPane({
   }, [isWork, workPath]);
 
   useEffect(() => {
+    // D61：新会话首条消息——跳过本次重载（档案尚未落盘，流式状态与刚入流的用户消息必须保留；
+    // 曾因不跳过导致整轮被清有空态 loading、流式事件因 rounds 为空被丢弃，轮末才一次性出现）
+    if (sessionId && sessionId === freshSessionRef.current) {
+      freshSessionRef.current = null;
+      return;
+    }
     setRounds([]);
     setHistoryTasks([]);
     if (!sessionId) {
@@ -383,7 +392,12 @@ export function ChatPane({
     // 转成结构化指令块，驱动 run_flow / 直连检查工具，Agent 可汇报阶段门与建议）。
 
     // 普通对话（@ 引用展开进 prompt）
-    const sid = sessionId ?? onNewSession();
+    // D61：新会话首条消息——登记 id 供加载 effect 跳过（会话切换重载会清掉本轮流式状态）
+    let sid = sessionId;
+    if (!sid) {
+      sid = onNewSession();
+      freshSessionRef.current = sid;
+    }
     setBusy(true);
     setMessages((m) => [...m, { role: "user", text: raw, tool_calls: [] }]);
     setRounds([{ title: null, state: { text: "", toolCalls: [] } }]);
