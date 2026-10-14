@@ -225,6 +225,16 @@
   line-height: 1.6;
 }
 
+/* Shiki token 真着色（D52）：streamdown 的 token span 只输出
+   style="--sdm-c: <亮色>; --shiki-dark: <暗色>"，施加颜色的规则依赖其包内样式
+   （本项目不扫 node_modules，等于没有）——此处补等价规则，亮/暗各取对应变量。 */
+.md-response [data-streamdown="code-block-body"] span[style*="--sdm-c"] {
+  color: var(--sdm-c);
+}
+.dark .md-response [data-streamdown="code-block-body"] span[style*="--sdm-c"] {
+  color: var(--shiki-dark);
+}
+
 .md-response [data-streamdown="inline-code"] {
   padding: 0.1rem 0.3rem;
   border-radius: calc(var(--radius) - 6px);

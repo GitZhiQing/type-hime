@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, PanelRightOpen, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 import { cn } from "cn";
 import { toolLabel, toolSummary } from "@/components/ai/tool";
@@ -66,9 +66,37 @@ export function AgentTaskRow({ data }: { data: AgentTaskRowData }) {
       ) : (
         <span className="shrink-0 text-xs font-medium">子任务</span>
       )}
-      <span className="shrink-0 text-xs text-muted-foreground" title={data.label}>
-        {data.label.length > 18 ? `${data.label.slice(0, 18)}…` : data.label}
-      </span>
+      {/* 标题（D52 用户反馈）：有子会话档案时标题即链接按钮——点击打开制品栏子会话标签
+          （此前只有右侧小图标，点击目标太小）；无档案时纯文本 */}
+      {data.session ? (
+        <button
+          type="button"
+          className="min-w-0 max-w-[45%] shrink truncate rounded-sm text-left text-xs font-medium underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:decoration-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+          title={`打开子 Agent 会话：${data.label}`}
+          aria-label="打开子 Agent 会话"
+          onClick={() =>
+            window.dispatchEvent(
+              new CustomEvent("delegation:open", {
+                detail: {
+                  id: data.id,
+                  agent: data.agent,
+                  label: data.label,
+                  session: data.session,
+                },
+              }),
+            )
+          }
+        >
+          {data.label}
+        </button>
+      ) : (
+        <span
+          className="min-w-0 max-w-[45%] shrink truncate text-xs text-muted-foreground"
+          title={data.label}
+        >
+          {data.label}
+        </span>
+      )}
       {/* 摘要位：运行中=最新子动作；静止=耗时·用量 */}
       <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
         {data.status === "running" ? data.activity ?? "" : stats}
@@ -81,30 +109,6 @@ export function AgentTaskRow({ data }: { data: AgentTaskRowData }) {
       >
         {data.status === "running" ? "运行中" : data.status === "done" ? "完成" : "失败"}
       </span>
-      {/* D50：直达制品栏的子会话视图（完整 timeline 在那里；无档案 id 时不出入口） */}
-      {data.session && (
-        <button
-          type="button"
-          className="shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
-          title="在制品面板打开子 Agent 会话"
-          aria-label="打开子 Agent 会话"
-          onClick={(e) => {
-            e.stopPropagation();
-            window.dispatchEvent(
-              new CustomEvent("delegation:open", {
-                detail: {
-                  id: data.id,
-                  agent: data.agent,
-                  label: data.label,
-                  session: data.session,
-                },
-              }),
-            );
-          }}
-        >
-          <PanelRightOpen className="size-3.5" />
-        </button>
-      )}
     </div>
   );
 }
