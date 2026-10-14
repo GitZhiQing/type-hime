@@ -196,7 +196,24 @@ pub fn unified_diff(old: &str, new: &str, rel_path: &str) -> String {
 }
 
 /// 应用提议：写盘 + git commit（提议语义的提交消息）。
+/// 归属校验（跨作品污染修复）：队列为 app 级共享，提议携带创建时的工作目录；
+/// 归属不符（含旧版无归属字段）一律拒绝——否则旧作品的存量提议被误点「接受」
+/// 会把它的全文写进当前作品同名路径（实测覆盖过另一作品的 ch-001 正文）。
 pub fn apply(work_dir: &Path, p: Proposal) -> Result<String, String> {
+    let norm = |s: &str| s.trim_end_matches(['/', '\\']).replace('/', "\\").to_lowercase();
+    let cur = norm(&work_dir.to_string_lossy());
+    if p.work_path.trim().is_empty() {
+        return Err(format!(
+            "提议 #{}（{}）缺少归属作品信息（旧版提议），无法安全应用；请在队列清理后重试",
+            p.id, p.rel_path
+        ));
+    }
+    if norm(&p.work_path) != cur {
+        return Err(format!(
+            "提议 #{}（{}）归属作品「{}」，不能应用到当前作品",
+            p.id, p.rel_path, p.work_path
+        ));
+    }
     let target = crate::works::ensure_writable(work_dir, &p.rel_path)?;
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败：{e}"))?;

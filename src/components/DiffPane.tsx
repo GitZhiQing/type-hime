@@ -20,7 +20,13 @@ export function DiffPane({ workPath, onApplied }: DiffPaneProps) {
 
   useEffect(() => {
     let alive = true;
-    const reload = () => api.listProposals().then((p) => alive && setProposals(p));
+    // 队列为 app 级共享（跨作品持久化）：只展示归属当前作品的提议——
+    // 曾因不过滤导致其他作品的存量提议出现在本作审阅列表，点「接受」会把旧作品
+    // 全文写进当前作品对应路径（实测覆盖过 ch-001 正文），此处按 work_path 硬过滤
+    const reload = () =>
+      api
+        .listProposals()
+        .then((list) => alive && setProposals(list.filter((p) => p.work_path === workPath)));
     reload();
     // 自动接受已并入权限档位（R4-③：完全访问档提议自动应用，此列只收人工审阅项）
     const un = listenCompat<Proposal>("review:new", () => reload());
