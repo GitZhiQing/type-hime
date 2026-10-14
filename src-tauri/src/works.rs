@@ -52,6 +52,128 @@ pub fn save_config(config: &AppConfig) -> Result<(), String> {
     std::fs::write(&path, raw).map_err(|e| format!("写入配置失败：{e}"))
 }
 
+/// 校验并准备工作区根目录：非空、不能指向既有文件、目录自动创建。
+fn prepare_works_root(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("工作区路径不能为空".into());
+    }
+    let root = PathBuf::from(trimmed);
+    if root.exists() && !root.is_dir() {
+        return Err(format!("该路径是一个文件，不能作为工作区：{trimmed}"));
+    }
+    std::fs::create_dir_all(&root).map_err(|e| format!("创建工作区目录失败：{e}"))?;
+    Ok(root)
+}
+
+/// 设置默认工作区（作品库根目录）：校验/建目录后持久化（D56：配置页与新建作品共用）。
+pub fn set_works_root(path: &str) -> Result<String, String> {
+    let root = prepare_works_root(path)?;
+    let mut config = load_config()?;
+    config.works_root = root.to_string_lossy().into_owned();
+    save_config(&config)?;
+    Ok(config.works_root)
+}
+
+// ---------------------------------------------------------------------------
+// 应用内文件夹选择器（D56）：目录列举——两个通道都可用，不依赖原生弹窗
+
+#[derive(Debug, Serialize)]
+pub struct DirEntryInfo {
+    pub name: String,
+    pub path: String,
+}
+
+/// 目录列举结果。current 为空串 = 「盘符列表」虚拟根（Windows）——
+/// parent 约定：Some("") = 回到盘符列表；None = 已在顶层。
+#[derive(Debug, Serialize)]
+pub struct DirListing {
+    pub current: String,
+    pub parent: Option<String>,
+    pub dirs: Vec<DirEntryInfo>,
+}
+
+fn list_subdirs(dir: &Path) -> Result<Vec<DirEntryInfo>, String> {
+    let mut dirs: Vec<DirEntryInfo> = std::fs::read_dir(dir)
+        .map_err(|e| format!("读取目录失败：{e}"))?
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                return None; // 隐藏目录降噪
+            }
+            Some(DirEntryInfo {
+                name,
+                path: e.path().to_string_lossy().into_owned(),
+            })
+        })
+        .collect();
+    dirs.sort_by_key(|d| d.name.to_lowercase());
+    Ok(dirs)
+}
+
+#[cfg(windows)]
+fn list_drives() -> Vec<DirEntryInfo> {
+    ('A'..='Z')
+        .filter_map(|c| {
+            let root = format!("{c}:\\");
+            Path::new(&root).is_dir().then(|| DirEntryInfo {
+                name: root.clone(),
+                path: root,
+            })
+        })
+        .collect()
+}
+
+/// 列举目录（path=None → Windows 盘符列表 / 其他平台主目录）。
+pub fn list_dirs(path: Option<String>) -> Result<DirListing, String> {
+    let Some(p) = path.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else {
+        #[cfg(windows)]
+        {
+            return Ok(DirListing {
+                current: String::new(),
+                parent: None,
+                dirs: list_drives(),
+            });
+        }
+        #[cfg(not(windows))]
+        {
+            let home = dirs::home_dir().ok_or("无法定位主目录")?;
+            let current = home.to_string_lossy().into_owned();
+            let parent = home
+                .parent()
+                .filter(|par| *par != home)
+                .map(|x| x.to_string_lossy().into_owned());
+            let dirs = list_subdirs(&home)?;
+            return Ok(DirListing {
+                current,
+                parent,
+                dirs,
+            });
+        }
+    };
+    let dir = PathBuf::from(&p);
+    if !dir.is_dir() {
+        return Err(format!("目录不存在：{p}"));
+    }
+    let current = dir.to_string_lossy().into_owned();
+    let dirs = list_subdirs(&dir)?;
+    let real_parent = dir
+        .parent()
+        .filter(|par| *par != dir)
+        .map(|x| x.to_string_lossy().into_owned());
+    #[cfg(windows)]
+    let parent = Some(real_parent.unwrap_or_default()); // 盘符根 → ""（回到盘符列表）
+    #[cfg(not(windows))]
+    let parent = real_parent;
+    Ok(DirListing {
+        current,
+        parent,
+        dirs,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // 作品
 
@@ -440,6 +562,64 @@ mod tests {
         // 路径穿越被拦截
         assert!(read_file(&work_dir, "../project.json").is_err());
         assert!(read_file(&work_dir, ".git/config").is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D56：工作区根校验（纯函数侧；设置默认工作区的持久化走 app config，不在单测内动）
+    #[test]
+    fn prepare_works_root_validation() {
+        let root = std::env::temp_dir().join(format!(
+            "type-hime-worksroot-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        // 空路径拒绝
+        assert!(prepare_works_root("   ").is_err());
+        // 指向既有文件拒绝
+        let file = root.join("not-a-dir.txt");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&file, "x").unwrap();
+        let err = prepare_works_root(&file.to_string_lossy()).unwrap_err();
+        assert!(err.contains("文件"), "{err}");
+        // 不存在的目录自动创建（含多级）
+        let nested = root.join("a").join("b");
+        let ok = prepare_works_root(&nested.to_string_lossy()).unwrap();
+        assert!(ok.is_dir());
+        // 末尾空白容忍
+        assert!(prepare_works_root(&format!(" {} ", nested.to_string_lossy())).is_ok());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D56：文件夹选择器目录列举
+    #[test]
+    fn list_dirs_roundtrip() {
+        let root = std::env::temp_dir().join(format!(
+            "type-hime-listdirs-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(root.join("b-dir")).unwrap();
+        std::fs::create_dir_all(root.join("a-dir")).unwrap();
+        std::fs::create_dir_all(root.join(".hidden")).unwrap();
+        std::fs::write(root.join("file.txt"), "x").unwrap();
+
+        let listing = list_dirs(Some(root.to_string_lossy().into_owned())).unwrap();
+        assert_eq!(listing.current, root.to_string_lossy());
+        // 只列目录、隐藏目录被过滤、文件名不计入、排序稳定
+        let names: Vec<&str> = listing.dirs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["a-dir", "b-dir"], "{names:?}");
+        assert!(listing.parent.is_some());
+
+        // 不存在的目录报错
+        assert!(list_dirs(Some(root.join("nope").to_string_lossy().into_owned())).is_err());
 
         let _ = std::fs::remove_dir_all(&root);
     }

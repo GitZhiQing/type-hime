@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { WorkspacePicker } from "@/components/WorkspacePicker";
 import {
   Select,
   SelectContent,
@@ -32,6 +33,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   CheckCircle2,
+  FolderOpen,
   Loader2,
   PlugZap,
   Plus,
@@ -59,6 +61,28 @@ export function Settings() {
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [testing, setTesting] = useState(false);
+  /** D56：默认工作区（作品库根目录） */
+  const [wsRoot, setWsRoot] = useState("");
+  const [wsSaving, setWsSaving] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  async function saveWorkspace() {
+    if (!wsRoot.trim() || wsSaving) return;
+    setWsSaving(true);
+    try {
+      const normalized = await api.setWorksRoot(wsRoot.trim());
+      setWsRoot(normalized);
+      toast.success(`默认工作区已保存：${normalized}`);
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setWsSaving(false);
+    }
+  }
+
+  async function pickWorkspace() {
+    setPickerOpen(true);
+  }
 
   async function refresh() {
     try {
@@ -75,6 +99,7 @@ export function Settings() {
 
   useEffect(() => {
     refresh();
+    api.getWorksRoot().then(setWsRoot).catch(() => {});
   }, []);
 
   function startAdd() {
@@ -190,16 +215,58 @@ export function Settings() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    /* D56：固定头 + 内容区独立滚动（原来 min-h-screen 在定高容器内会溢出窗口） */
+    <div className="flex h-full flex-col bg-background">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
         <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => navigate(-1)}>
           <ArrowLeft data-icon="inline-start" />
           返回
         </Button>
-        <span className="text-sm font-semibold">设置 · 模型供应商</span>
+        <span className="text-sm font-semibold">设置</span>
       </header>
 
-      <div className="mx-auto w-full max-w-2xl p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-2xl p-6">
+        {/* 工作区（D56）：默认作品库根目录——新建作品默认落于此 */}
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">工作区</CardTitle>
+            <CardDescription>
+              默认作品库文件夹：新建作品默认创建在这里，作品库页面按它列出作品。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Input
+                value={wsRoot}
+                onChange={(e) => setWsRoot(e.currentTarget.value)}
+                placeholder="例如：D:\novels"
+                className="min-w-0 flex-1 font-mono text-xs"
+                aria-label="默认工作区"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="浏览文件夹"
+                title="浏览文件夹"
+                onClick={pickWorkspace}
+              >
+                <FolderOpen className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!wsRoot.trim() || wsSaving}
+                onClick={saveWorkspace}
+              >
+                {wsSaving && <Loader2 data-icon="inline-start" className="animate-spin" />}
+                保存
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="mb-4 flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
             key 只保存在本机 Rust 侧，界面永不回显明文。勾选"启用"的供应商用于全部
@@ -418,6 +485,15 @@ export function Settings() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* 应用内文件夹选择器（D56） */}
+        <WorkspacePicker
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          initialPath={wsRoot}
+          onPick={setWsRoot}
+        />
+        </div>
       </div>
     </div>
   );

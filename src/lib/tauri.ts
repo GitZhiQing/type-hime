@@ -395,8 +395,26 @@ export interface IssueRecord {
   ruling: string | null;
 }
 
+/** 文件夹选择器的目录列举（D56；current 空串 = Windows 盘符列表虚拟根） */
+export interface DirEntryInfo {
+  name: string;
+  path: string;
+}
+
+export interface DirListing {
+  current: string;
+  /** Some("") = 回到盘符列表；null = 已在顶层 */
+  parent: string | null;
+  dirs: DirEntryInfo[];
+}
+
 export const api = {
   getWorksRoot: () => call<string>("get_works_root"),
+  /** 设置默认工作区（D56：配置页与新建作品共用；校验/建目录后持久化） */
+  setWorksRoot: (path: string) => call<string>("set_works_root", { path }),
+  /** 应用内文件夹选择器：列举目录（path=null → 盘符列表/主目录） */
+  listDirs: (path?: string | null) =>
+    call<DirListing>("list_dirs", { path: path ?? null }),
   listWorks: () => call<WorkSummary[]>("list_works"),
   createWork: (name: string, base?: string) =>
     call<WorkSummary>("create_work", { name, base: base ?? null }),

@@ -11,7 +11,7 @@ pnpm tauri dev          # 完整桌面应用开发模式（Rust + 前端热更�
 pnpm build              # 前端类型检查 + 构建（tsc && vite build）
 cd src-tauri
 cargo check             # Rust 编译检查（警告保持 0）
-cargo test              # Rust 单测（75 项：git/works/pipeline/lore/ledger/assembly/settings/issues/preflight/session/kernel/approval/bash/permissions/subtask/skills/flows/goal/profiles）
+cargo test              # Rust 单测（77 项：git/works/pipeline/lore/ledger/assembly/settings/issues/preflight/session/kernel/approval/bash/permissions/subtask/skills/flows/goal/profiles）
 cargo run --example chat_smoke -- <作品目录>      # 冒烟：模型列表+流式+工具+会话+提议
 cargo run --example full_flow -- <作品目录>       # 冒烟：章纲→正文→账本回写
 cargo run --example mvp_flow                       # 交付判据验收（真实模型全流程）
@@ -45,7 +45,7 @@ src-tauri/src/
     profiles/        内置子 Agent md（general 通用基础模板）
   permissions.rs     权限两档 + 覆盖矩阵（resolve：pattern override → 工具级 → 会话档）
   watch.rs           作品目录文件监听（R13 · D40：notify 递归 + .sessions/.git 过滤 + 400ms 防抖 → work:changed）
-  works.rs           作品/文件/资源树（路径穿越防护；write_file 不建父目录，create_file 才建）
+  works.rs           作品/文件/资源树（路径穿越防护；write_file 不建父目录，create_file 才建）；默认工作区可配（D56 set_works_root）+ 应用内文件夹浏览 list_dirs
   git.rs             命令行 git 封装（log/show 单提交 diff；commit_all 供 git_commit 工具）
   pipeline.rs        六阶段状态机 + 阶段门
   lore.rs            设定库 + 可见性（is_prompt_visible 是红线唯一裁决点）+ 4-gram 泄漏检查

@@ -807,6 +807,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // 作品底座
             get_works_root,
+            set_works_root,
+            list_dirs,
             list_works,
             create_work,
             read_tree,
@@ -899,6 +901,18 @@ pub fn run() {
 #[tauri::command]
 fn get_works_root() -> Result<String, String> {
     works::load_config().map(|c| c.works_root)
+}
+
+/// 设置默认工作区（D56：配置页与新建作品共用；校验/建目录后持久化）。
+#[tauri::command]
+fn set_works_root(path: String) -> Result<String, String> {
+    works::set_works_root(&path)
+}
+
+/// 应用内文件夹选择器的目录列举（D56）：path=None → Windows 盘符列表 / 其他平台主目录。
+#[tauri::command]
+fn list_dirs(path: Option<String>) -> Result<works::DirListing, String> {
+    works::list_dirs(path)
 }
 
 #[tauri::command]
