@@ -2,18 +2,15 @@
   <!-- 码字姬 应用图标（源文件）。重新生成全套图标：
        pnpm tauri icon src-tauri/icons/app-icon.svg -->
   <defs>
-    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#251a10"/>
-      <stop offset="1" stop-color="#140d07"/>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f0e1"/>
+      <stop offset="1" stop-color="#eadfc8"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="230" fill="url(#ink)"/>
-  <rect x="56" y="56" width="912" height="912" rx="176" fill="none" stroke="#f2ead7" stroke-opacity="0.12" stroke-width="8"/>
+  <rect width="1024" height="1024" rx="230" fill="url(#paper)"/>
+  <rect x="56" y="56" width="912" height="912" rx="176" fill="none" stroke="#1d150d" stroke-opacity="0.14" stroke-width="8"/>
   <text x="512" y="706" text-anchor="middle"
         font-family="'Noto Serif SC','Source Han Serif SC','Songti SC',SimSun,serif"
-        font-size="580" font-weight="600" fill="#f2ead7">码</text>
+        font-size="580" font-weight="600" fill="#20160c">码</text>
   <rect x="800" y="800" width="176" height="176" rx="32" fill="#b93a2c"/>
-  <text x="888" y="925" text-anchor="middle"
-        font-family="'Noto Serif SC','Source Han Serif SC','Songti SC',SimSun,serif"
-        font-size="118" font-weight="600" fill="#f2ead7">文</text>
 </svg>
