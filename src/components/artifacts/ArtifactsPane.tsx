@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   SettingMeta,
   TreeNode,
@@ -16,6 +16,9 @@ import {
 import { cn } from "cn";
 import {
   BookOpen,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   GitBranch,
   Layers,
@@ -175,6 +178,51 @@ export function ArtifactsPane({
 
   const active = tabs.find((t) => t.id === activeId);
 
+  // 浏览器式标签栏（用户反馈）：标签保最小可读宽度，溢出时横向滚动——
+  // 滚轮转横向 + 边缘箭头（按可滚动状态显隐）+ 激活标签自动滚入视野
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 1);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  useEffect(() => {
+    updateScrollState();
+    const el = stripRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    const ro = new ResizeObserver(updateScrollState);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateScrollState);
+      ro.disconnect();
+    };
+  }, [updateScrollState, tabs]);
+
+  // 激活标签滚入视野（切标签/新开签时）
+  useEffect(() => {
+    const el = stripRef.current?.querySelector('[data-tab-active="true"]');
+    el?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [activeId, tabs.length]);
+
+  function scrollStrip(dir: -1 | 1) {
+    stripRef.current?.scrollBy({ left: dir * 240, behavior: "smooth" });
+  }
+
+  /** 竖向滚轮转横向滚动（浏览器标签栏惯例；触控板的横向分量原样生效） */
+  function onStripWheel(e: React.WheelEvent) {
+    const el = stripRef.current;
+    if (!el) return;
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      el.scrollLeft += e.deltaY;
+    }
+  }
+
   // 聊天内联问题卡等入口的跨组件开签请求（R5-③：detail.kind 指定制品）
   useEffect(() => {
     const onOpen = (e: Event) => {
@@ -201,46 +249,113 @@ export function ArtifactsPane({
 
   return (
     <section className="flex h-full min-w-0 flex-col">
-      {/* 标签条：标签可压缩（VS Code 式），容器禁滚动——overflow-x-auto 会在溢出时
-          同时带出横竖两根滚动条（overflow-y 的 visible 被计算为 auto），故用 overflow-hidden */}
+      {/* 标签条（浏览器式）：标签等宽铺开、最小可读宽度（min-w-28）后溢出滚动；
+          隐藏滚动条（.tabbar-scroll），导航靠滚轮 + 边缘箭头 + 标签列表下拉 */}
       <div className="flex h-9 shrink-0 items-stretch border-b bg-muted/30">
-        <div className="flex min-w-0 flex-1 items-stretch overflow-hidden">
-          {tabs.map((t) => (
-            <div
-              key={t.id}
-              className={cn(
-                "group flex min-w-10 max-w-44 flex-1 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
-                t.id === activeId
-                  ? "border-t-2 border-t-primary bg-background text-foreground"
-                  : "border-t-2 border-t-transparent text-muted-foreground hover:bg-background/60",
-              )}
+        <div className="relative flex min-w-0 flex-1 items-stretch">
+          {canLeft && (
+            <button
+              type="button"
+              aria-label="向左滚动标签"
+              className="absolute left-0 top-0 z-10 flex h-full items-center bg-muted/95 px-0.5 text-muted-foreground hover:text-foreground"
+              onClick={() => scrollStrip(-1)}
             >
-              <button
-                type="button"
-                className="flex min-w-0 items-center gap-1.5 py-1.5"
-                onClick={() => persist({ tabs, activeId: t.id })}
-                title={t.path ?? t.title}
-              >
-                {t.kind === "doc" ? (
-                  <FileText className="size-3 shrink-0" />
-                ) : (
-                  SINGLETONS.find((s) => s.kind === t.kind)?.icon ?? (
-                    <FileText className="size-3 shrink-0" />
-                  )
+              <ChevronLeft className="size-3.5" />
+            </button>
+          )}
+          <div
+            ref={stripRef}
+            onWheel={onStripWheel}
+            className="tabbar-scroll flex min-w-0 flex-1 items-stretch overflow-x-auto"
+          >
+            {tabs.map((t) => (
+              <div
+                key={t.id}
+                data-tab-active={t.id === activeId}
+                className={cn(
+                  "group flex min-w-28 max-w-56 flex-1 items-center gap-1.5 border-r px-2.5 text-xs transition-colors",
+                  t.id === activeId
+                    ? "border-t-2 border-t-primary bg-background text-foreground"
+                    : "border-t-2 border-t-transparent text-muted-foreground hover:bg-background/60",
                 )}
-                <span className="truncate">{t.title}</span>
-              </button>
-              <button
-                type="button"
-                aria-label={`关闭 ${t.title}`}
-                className="ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
-                onClick={() => closeTab(t.id)}
               >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5"
+                  onClick={() => persist({ tabs, activeId: t.id })}
+                  title={t.path ?? t.title}
+                >
+                  {t.kind === "doc" ? (
+                    <FileText className="size-3 shrink-0" />
+                  ) : (
+                    SINGLETONS.find((s) => s.kind === t.kind)?.icon ?? (
+                      <FileText className="size-3 shrink-0" />
+                    )
+                  )}
+                  <span className="truncate">{t.title}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`关闭 ${t.title}`}
+                  className={cn(
+                    "shrink-0 rounded p-0.5 transition-opacity hover:bg-accent",
+                    t.id === activeId
+                      ? "opacity-70 hover:opacity-100"
+                      : "opacity-0 group-hover:opacity-100",
+                  )}
+                  onClick={() => closeTab(t.id)}
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+          {canRight && (
+            <button
+              type="button"
+              aria-label="向右滚动标签"
+              className="absolute right-0 top-0 z-10 flex h-full items-center bg-muted/95 px-0.5 text-muted-foreground hover:text-foreground"
+              onClick={() => scrollStrip(1)}
+            >
+              <ChevronRight className="size-3.5" />
+            </button>
+          )}
         </div>
+        {/* 标签列表下拉（浏览器 ⌄ 惯例）：全部开签一览，点选激活 */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 w-8 shrink-0 rounded-none border-l"
+                aria-label="标签列表"
+              />
+            }
+          >
+            <ChevronDown className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>打开的标签（{tabs.length}）</DropdownMenuLabel>
+              {tabs.map((t) => (
+                <DropdownMenuItem key={t.id} onClick={() => persist({ tabs, activeId: t.id })}>
+                  {t.kind === "doc" ? (
+                    <FileText className="size-3 shrink-0" />
+                  ) : (
+                    SINGLETONS.find((s) => s.kind === t.kind)?.icon ?? (
+                      <FileText className="size-3 shrink-0" />
+                    )
+                  )}
+                  <span className="truncate">{t.title}</span>
+                  {t.id === activeId && (
+                    <span className="ml-auto text-[10px] text-primary">当前</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {/* + 菜单：可打开的制品 */}
         <DropdownMenu>
           <DropdownMenuTrigger

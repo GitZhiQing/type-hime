@@ -231,3 +231,12 @@
   background: var(--background);
   font-size: 0.8em;
 }
+
+/* 制品面板标签条（R5-④：浏览器式标签栏）——横向可滚但隐藏滚动条本体，
+   溢出导航交给边缘箭头与滚轮（scrollbar-width/WebKit 双口径） */
+.tabbar-scroll {
+  scrollbar-width: none;
+}
+.tabbar-scroll::-webkit-scrollbar {
+  display: none;
+}
